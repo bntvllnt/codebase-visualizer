@@ -48,14 +48,39 @@ export function parseCodebase(rootDir: string): ParsedFile[] {
   }));
 }
 
+function loadGitignorePatterns(rootDir: string): string[] {
+  const gitignorePath = path.join(rootDir, ".gitignore");
+  if (!fs.existsSync(gitignorePath)) return [];
+  const content = fs.readFileSync(gitignorePath, "utf-8");
+  return content
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+}
+
+function isGitignored(relativePath: string, patterns: string[]): boolean {
+  for (const pattern of patterns) {
+    const clean = pattern.endsWith("/") ? pattern.slice(0, -1) : pattern;
+    // Match directory name at any level
+    const segments = relativePath.split(path.sep);
+    for (const seg of segments) {
+      if (seg === clean) return true;
+    }
+    // Match leading path
+    if (relativePath.startsWith(clean + path.sep) || relativePath === clean) return true;
+  }
+  return false;
+}
+
 function findTypeScriptFiles(dir: string): string[] {
   const files: string[] = [];
   const visited = new Set<string>();
-  walkDir(dir, files, visited);
-  return files.filter((f) => !f.endsWith(".d.ts") && !f.includes("node_modules"));
+  const ignorePatterns = loadGitignorePatterns(dir);
+  walkDir(dir, dir, files, visited, ignorePatterns);
+  return files.filter((f) => !f.endsWith(".d.ts"));
 }
 
-function walkDir(dir: string, results: string[], visited: Set<string>): void {
+function walkDir(dir: string, rootDir: string, results: string[], visited: Set<string>, ignorePatterns: string[]): void {
   const realDir = fs.realpathSync(dir);
   if (visited.has(realDir)) return;
   visited.add(realDir);
@@ -64,13 +89,20 @@ function walkDir(dir: string, results: string[], visited: Set<string>): void {
 
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
+    const relPath = path.relative(rootDir, fullPath);
+
+    // Always skip these regardless of .gitignore
+    if (entry.name === ".git" || entry.name === "node_modules") continue;
+
+    // Check gitignore patterns
+    if (isGitignored(relPath, ignorePatterns)) continue;
 
     if (entry.isSymbolicLink()) {
       try {
         const realTarget = fs.realpathSync(fullPath);
         const stat = fs.statSync(realTarget);
         if (stat.isDirectory()) {
-          if (!visited.has(realTarget)) walkDir(fullPath, results, visited);
+          if (!visited.has(realTarget)) walkDir(fullPath, rootDir, results, visited, ignorePatterns);
         } else if (stat.isFile() && (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx"))) {
           results.push(fullPath);
         }
@@ -78,10 +110,7 @@ function walkDir(dir: string, results: string[], visited: Set<string>): void {
         continue;
       }
     } else if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === ".git" || entry.name === "dist") {
-        continue;
-      }
-      walkDir(fullPath, results, visited);
+      walkDir(fullPath, rootDir, results, visited, ignorePatterns);
     } else if (entry.isFile() && (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx"))) {
       results.push(fullPath);
     }

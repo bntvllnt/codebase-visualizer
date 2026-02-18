@@ -194,10 +194,10 @@
       <input type="range" id="cfg-linkWidth" min="0.1" max="3" step="0.1" value="0.3">
     </div>
     <div class="config-section">Grouping</div>
-    <label class="config-check"><input type="checkbox" id="cfg-moduleBoxes" checked> <span>Module Boxes</span></label>
+    <label class="config-check"><input type="checkbox" id="cfg-moduleBoxes" checked> <span>Module Clouds</span></label>
     <div class="config-group">
-      <label>Box Opacity <span id="val-boxOpacity">0.25</span></label>
-      <input type="range" id="cfg-boxOpacity" min="0.05" max="0.8" step="0.05" value="0.25">
+      <label>Cloud Opacity <span id="val-boxOpacity">0.40</span></label>
+      <input type="range" id="cfg-boxOpacity" min="0.05" max="0.8" step="0.05" value="0.4">
     </div>
     <div class="config-section">Physics</div>
     <div class="config-group">
@@ -272,24 +272,48 @@
       charge: -30,
       distance: 120,
       showModuleBoxes: true,
-      boxOpacity: 0.25,
+      boxOpacity: 0.4,
     };
 
-    // Module bounding boxes (Three.js wireframe cubes)
-    const moduleBoxes = new Map();
+    // Module clouds (3D sphere meshes + text labels)
+    const moduleClouds = new Map();
 
-    function clearModuleBoxes() {
-      moduleBoxes.forEach(obj => {
-        obj.lines.geometry.dispose();
-        obj.lines.material.dispose();
-        if (graph3d) graph3d.scene().remove(obj.lines);
+    function makeLabelSprite(text, hexColor) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = 512; canvas.height = 64;
+      ctx.font = 'bold 36px Inter, -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 6;
+      ctx.strokeText(text, 256, 32);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(text, 256, 32);
+      const texture = new THREE.CanvasTexture(canvas);
+      const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+      const sprite = new THREE.Sprite(mat);
+      sprite.scale.set(100, 12, 1);
+      return sprite;
+    }
+
+    function clearModuleClouds() {
+      if (!graph3d) return;
+      const scene = graph3d.scene();
+      moduleClouds.forEach(obj => {
+        obj.mesh.geometry.dispose();
+        obj.mesh.material.dispose();
+        scene.remove(obj.mesh);
+        obj.label.material.map.dispose();
+        obj.label.material.dispose();
+        scene.remove(obj.label);
       });
-      moduleBoxes.clear();
+      moduleClouds.clear();
     }
 
     function updateModuleBoxes() {
       if (!graph3d || typeof THREE === 'undefined') return;
-      if (!cfg.showModuleBoxes) { clearModuleBoxes(); return; }
+      if (!cfg.showModuleBoxes) { clearModuleClouds(); return; }
 
       const scene = graph3d.scene();
       const nodes = graph3d.graphData().nodes;
@@ -297,13 +321,15 @@
       const groups = new Map();
       nodes.forEach(n => {
         if (n.x === undefined) return;
+        // Skip worktree duplicates
+        if (n.module.startsWith('.worktrees/')) return;
         if (!groups.has(n.module)) groups.set(n.module, []);
         groups.get(n.module).push(n);
       });
 
       const active = new Set();
       groups.forEach((moduleNodes, mod) => {
-        if (moduleNodes.length < 2) return;
+        if (moduleNodes.length < 3) return;
         active.add(mod);
 
         let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -314,39 +340,55 @@
           minZ = Math.min(minZ, n.z); maxZ = Math.max(maxZ, n.z);
         });
 
-        const pad = 15;
-        const sx = Math.max((maxX - minX) + pad * 2, pad);
-        const sy = Math.max((maxY - minY) + pad * 2, pad);
-        const sz = Math.max((maxZ - minZ) + pad * 2, pad);
+        const pad = 20;
+        const rx = Math.max((maxX - minX) / 2 + pad, 12);
+        const ry = Math.max((maxY - minY) / 2 + pad, 12);
+        const rz = Math.max((maxZ - minZ) / 2 + pad, 12);
         const cx = (minX + maxX) / 2;
         const cy = (minY + maxY) / 2;
         const cz = (minZ + maxZ) / 2;
 
-        const existing = moduleBoxes.get(mod);
+        const existing = moduleClouds.get(mod);
         if (existing) {
-          existing.lines.position.set(cx, cy, cz);
-          existing.lines.scale.set(sx, sy, sz);
-          existing.lines.material.opacity = cfg.boxOpacity;
+          existing.mesh.position.set(cx, cy, cz);
+          existing.mesh.scale.set(rx, ry, rz);
+          existing.mesh.material.opacity = cfg.boxOpacity * 0.25;
+          existing.label.position.set(cx, maxY + pad + 8, cz);
         } else {
           const color = getModuleColor(mod);
-          const geo = new THREE.BoxGeometry(1, 1, 1);
-          const edges = new THREE.EdgesGeometry(geo);
-          const mat = new THREE.LineBasicMaterial({ color, opacity: cfg.boxOpacity, transparent: true });
-          const lines = new THREE.LineSegments(edges, mat);
-          lines.position.set(cx, cy, cz);
-          lines.scale.set(sx, sy, sz);
-          scene.add(lines);
-          geo.dispose();
-          moduleBoxes.set(mod, { lines });
+
+          // Semi-transparent sphere
+          const geo = new THREE.SphereGeometry(2, 24, 16);
+          const mat = new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: cfg.boxOpacity * 0.25,
+            depthWrite: false,
+            side: THREE.BackSide,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(cx, cy, cz);
+          mesh.scale.set(rx, ry, rz);
+          scene.add(mesh);
+
+          // Floating label
+          const label = makeLabelSprite(mod, color);
+          label.position.set(cx, maxY + pad + 8, cz);
+          scene.add(label);
+
+          moduleClouds.set(mod, { mesh, label });
         }
       });
 
-      moduleBoxes.forEach((obj, mod) => {
+      moduleClouds.forEach((obj, mod) => {
         if (!active.has(mod)) {
-          obj.lines.geometry.dispose();
-          obj.lines.material.dispose();
-          scene.remove(obj.lines);
-          moduleBoxes.delete(mod);
+          obj.mesh.geometry.dispose();
+          obj.mesh.material.dispose();
+          scene.remove(obj.mesh);
+          obj.label.material.map.dispose();
+          obj.label.material.dispose();
+          scene.remove(obj.label);
+          moduleClouds.delete(mod);
         }
       });
     }
@@ -814,7 +856,7 @@
     }
 
     function rerender() {
-      moduleBoxes.clear();
+      clearModuleClouds();
       switch (currentView) {
         case 'galaxy': renderGalaxy(); break;
         case 'depflow': renderDepFlow(); break;
@@ -975,7 +1017,7 @@
 
       document.getElementById('cfg-moduleBoxes').addEventListener('change', (e) => {
         cfg.showModuleBoxes = e.target.checked;
-        if (!cfg.showModuleBoxes) clearModuleBoxes();
+        if (!cfg.showModuleBoxes) clearModuleClouds();
         else updateModuleBoxes();
       });
 
@@ -984,7 +1026,9 @@
       boxInput.addEventListener('input', () => {
         cfg.boxOpacity = parseFloat(boxInput.value);
         boxDisplay.textContent = cfg.boxOpacity.toFixed(2);
-        moduleBoxes.forEach(obj => { obj.lines.material.opacity = cfg.boxOpacity; });
+        moduleClouds.forEach(obj => {
+          obj.mesh.material.opacity = cfg.boxOpacity * 0.25;
+        });
       });
     }
 

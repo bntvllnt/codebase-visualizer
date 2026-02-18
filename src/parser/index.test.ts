@@ -1,0 +1,297 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import fs from "fs";
+import path from "path";
+import os from "os";
+import { parseCodebase } from "./index.js";
+
+let tempDir: string;
+
+describe("parseCodebase", () => {
+  beforeAll(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "codebase-viz-test-"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("throws for nonexistent directory", () => {
+    expect(() => parseCodebase("/nonexistent/path/does/not/exist")).toThrow("Directory not found");
+  });
+
+  it("throws for directory with no TypeScript files", () => {
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), "codebase-viz-empty-"));
+    try {
+      expect(() => parseCodebase(emptyDir)).toThrow("No TypeScript files found");
+    } finally {
+      fs.rmSync(emptyDir, { recursive: true, force: true });
+    }
+  });
+
+  describe("with a real TypeScript project", () => {
+    let projectDir: string;
+
+    beforeAll(() => {
+      projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "codebase-viz-project-"));
+
+      // utils.ts — exports a function and a variable
+      fs.writeFileSync(
+        path.join(projectDir, "utils.ts"),
+        `export function add(a: number, b: number): number {
+  return a + b;
+}
+
+export const VERSION = "1.0.0";
+`
+      );
+
+      // types.ts — exports an interface and a type alias
+      fs.writeFileSync(
+        path.join(projectDir, "types.ts"),
+        `export interface User {
+  id: string;
+  name: string;
+}
+
+export type UserList = User[];
+`
+      );
+
+      // main.ts — imports from utils and types
+      fs.writeFileSync(
+        path.join(projectDir, "main.ts"),
+        `import { add, VERSION } from "./utils";
+import type { User } from "./types";
+
+export function greet(user: User): string {
+  return \`Hello \${user.name}, version \${VERSION}, sum: \${add(1, 2)}\`;
+}
+
+export default function run(): void {
+  console.log("running");
+}
+`
+      );
+
+      // Sub-module: lib/helper.ts — imports from parent
+      fs.mkdirSync(path.join(projectDir, "lib"));
+      fs.writeFileSync(
+        path.join(projectDir, "lib", "helper.ts"),
+        `import { add } from "../utils";
+
+export class Calculator {
+  sum(a: number, b: number): number {
+    return add(a, b);
+  }
+}
+`
+      );
+    });
+
+    afterAll(() => {
+      fs.rmSync(projectDir, { recursive: true, force: true });
+    });
+
+    it("parses all TypeScript files", () => {
+      const files = parseCodebase(projectDir);
+      expect(files).toHaveLength(4);
+    });
+
+    it("extracts relative paths", () => {
+      const files = parseCodebase(projectDir);
+      const relPaths = files.map((f) => f.relativePath).sort();
+      expect(relPaths).toEqual(["lib/helper.ts", "main.ts", "types.ts", "utils.ts"]);
+    });
+
+    it("extracts exported functions", () => {
+      const files = parseCodebase(projectDir);
+      const utils = files.find((f) => f.relativePath === "utils.ts");
+
+      expect(utils?.exports).toContainEqual(
+        expect.objectContaining({ name: "add", type: "function" })
+      );
+    });
+
+    it("extracts exported variables", () => {
+      const files = parseCodebase(projectDir);
+      const utils = files.find((f) => f.relativePath === "utils.ts");
+
+      expect(utils?.exports).toContainEqual(
+        expect.objectContaining({ name: "VERSION", type: "variable" })
+      );
+    });
+
+    it("extracts exported interfaces", () => {
+      const files = parseCodebase(projectDir);
+      const types = files.find((f) => f.relativePath === "types.ts");
+
+      expect(types?.exports).toContainEqual(
+        expect.objectContaining({ name: "User", type: "interface" })
+      );
+    });
+
+    it("extracts exported type aliases", () => {
+      const files = parseCodebase(projectDir);
+      const types = files.find((f) => f.relativePath === "types.ts");
+
+      expect(types?.exports).toContainEqual(
+        expect.objectContaining({ name: "UserList", type: "type" })
+      );
+    });
+
+    it("extracts exported classes", () => {
+      const files = parseCodebase(projectDir);
+      const helper = files.find((f) => f.relativePath === "lib/helper.ts");
+
+      expect(helper?.exports).toContainEqual(
+        expect.objectContaining({ name: "Calculator", type: "class" })
+      );
+    });
+
+    it("extracts default exports", () => {
+      const files = parseCodebase(projectDir);
+      const main = files.find((f) => f.relativePath === "main.ts");
+
+      expect(main?.exports).toContainEqual(
+        expect.objectContaining({ name: "default", isDefault: true })
+      );
+    });
+
+    it("extracts named import symbols", () => {
+      const files = parseCodebase(projectDir);
+      const main = files.find((f) => f.relativePath === "main.ts");
+
+      const utilsImport = main?.imports.find((i) => i.from === "./utils");
+      expect(utilsImport?.symbols).toContain("add");
+      expect(utilsImport?.symbols).toContain("VERSION");
+    });
+
+    it("marks type-only imports", () => {
+      const files = parseCodebase(projectDir);
+      const main = files.find((f) => f.relativePath === "main.ts");
+
+      const typeImport = main?.imports.find((i) => i.from === "./types");
+      expect(typeImport?.isTypeOnly).toBe(true);
+    });
+
+    it("resolves import paths to relative file paths", () => {
+      const files = parseCodebase(projectDir);
+      const main = files.find((f) => f.relativePath === "main.ts");
+
+      const utilsImport = main?.imports.find((i) => i.from === "./utils");
+      expect(utilsImport?.resolvedFrom).toBe("utils.ts");
+    });
+
+    it("resolves parent-directory imports", () => {
+      const files = parseCodebase(projectDir);
+      const helper = files.find((f) => f.relativePath === "lib/helper.ts");
+
+      const utilsImport = helper?.imports.find((i) => i.from === "../utils");
+      expect(utilsImport?.resolvedFrom).toBe("utils.ts");
+    });
+
+    it("counts lines of code", () => {
+      const files = parseCodebase(projectDir);
+      const utils = files.find((f) => f.relativePath === "utils.ts");
+      expect(utils?.loc).toBeGreaterThan(0);
+    });
+
+    it("skips external package imports", () => {
+      const projectWithExternal = fs.mkdtempSync(path.join(os.tmpdir(), "codebase-viz-ext-"));
+      try {
+        fs.writeFileSync(
+          path.join(projectWithExternal, "index.ts"),
+          `import fs from "fs";
+import path from "path";
+
+export function hello(): string {
+  return "hello";
+}
+`
+        );
+        const files = parseCodebase(projectWithExternal);
+        const index = files.find((f) => f.relativePath === "index.ts");
+        // External imports (fs, path) should not appear
+        expect(index?.imports).toHaveLength(0);
+      } finally {
+        fs.rmSync(projectWithExternal, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("ESM .js extension resolution", () => {
+    it("resolves .js imports to .ts files", () => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "codebase-viz-esm-"));
+      try {
+        fs.writeFileSync(
+          path.join(projectDir, "a.ts"),
+          `import { foo } from "./b.js";
+export const bar = foo;
+`
+        );
+        fs.writeFileSync(
+          path.join(projectDir, "b.ts"),
+          `export const foo = 42;
+`
+        );
+
+        const files = parseCodebase(projectDir);
+        const a = files.find((f) => f.relativePath === "a.ts");
+        const bImport = a?.imports.find((i) => i.from === "./b.js");
+        expect(bImport?.resolvedFrom).toBe("b.ts");
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("edge cases", () => {
+    it("skips .d.ts files", () => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "codebase-viz-dts-"));
+      try {
+        fs.writeFileSync(path.join(projectDir, "index.ts"), `export const x = 1;\n`);
+        fs.writeFileSync(path.join(projectDir, "types.d.ts"), `declare const y: number;\n`);
+
+        const files = parseCodebase(projectDir);
+        expect(files).toHaveLength(1);
+        expect(files[0].relativePath).toBe("index.ts");
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+
+    it("handles symlink loops without stack overflow", () => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "codebase-viz-symlink-"));
+      try {
+        fs.writeFileSync(path.join(projectDir, "index.ts"), `export const x = 1;\n`);
+        fs.mkdirSync(path.join(projectDir, "sub"));
+        // Create a symlink loop: sub/link → parent dir
+        fs.symlinkSync(projectDir, path.join(projectDir, "sub", "link"), "dir");
+
+        const files = parseCodebase(projectDir);
+        // Should complete without infinite recursion
+        expect(files.length).toBeGreaterThanOrEqual(1);
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+
+    it("skips node_modules directories", () => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "codebase-viz-nm-"));
+      try {
+        fs.writeFileSync(path.join(projectDir, "index.ts"), `export const x = 1;\n`);
+        fs.mkdirSync(path.join(projectDir, "node_modules", "fake"), { recursive: true });
+        fs.writeFileSync(
+          path.join(projectDir, "node_modules", "fake", "index.ts"),
+          `export const y = 2;\n`
+        );
+
+        const files = parseCodebase(projectDir);
+        expect(files).toHaveLength(1);
+        expect(files[0].relativePath).toBe("index.ts");
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+  });
+});

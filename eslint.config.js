@@ -54,6 +54,16 @@ export default tseslint.config(
       "@typescript-eslint/no-deprecated": "off",
     },
   },
+  // Test files: relax unsafe rules (supertest res.body is inherently `any`)
+  {
+    files: ["src/**/*.test.ts"],
+    rules: {
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
+    },
+  },
   {
     ignores: ["dist/**", "public/**", "*.config.*", "vitest.config.ts"],
   }

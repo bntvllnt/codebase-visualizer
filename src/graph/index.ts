@@ -102,7 +102,8 @@ export function detectCircularDeps(graph: Graph): string[][] {
   const fileNodes = graph.filterNodes((_node: string, attrs: Record<string, unknown>) => attrs.type === "file");
 
   for (const startNode of fileNodes) {
-    if (visited.has(startNode) || cycles.length >= MAX_CYCLES) break;
+    if (cycles.length >= MAX_CYCLES) break;
+    if (visited.has(startNode)) continue;
 
     const stack: Array<{ node: string; pathIndex: number; neighborIdx: number }> = [];
     const currentPath: string[] = [];

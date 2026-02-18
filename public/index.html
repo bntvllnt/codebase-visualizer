@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Codebase Visualizer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0f; color: #e0e0e0; font-family: 'Inter', -apple-system, sans-serif; overflow: hidden; }
+
+    /* Header */
+    #header {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 16px; background: rgba(10,10,15,0.9); border-bottom: 1px solid #222;
+    }
+    #header h1 { font-size: 14px; font-weight: 600; color: #fff; white-space: nowrap; }
+    #stats { font-size: 12px; color: #888; }
+
+    /* View selector */
+    .view-tabs { display: flex; gap: 4px; margin-left: 16px; }
+    .view-tab {
+      padding: 4px 10px; font-size: 11px; border-radius: 4px;
+      background: #1a1a24; color: #888; border: 1px solid #333;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .view-tab:hover { background: #252530; color: #ccc; }
+    .view-tab.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+    /* Search */
+    #search {
+      margin-left: auto; padding: 4px 10px; font-size: 12px;
+      background: #1a1a24; color: #e0e0e0; border: 1px solid #333;
+      border-radius: 4px; outline: none; width: 200px;
+    }
+    #search:focus { border-color: #2563eb; }
+
+    /* Graph container */
+    #graph { width: 100vw; height: 100vh; }
+
+    /* Detail panel */
+    #detail {
+      position: fixed; top: 48px; right: 0; width: 320px; max-height: calc(100vh - 48px);
+      background: rgba(15,15,25,0.95); border-left: 1px solid #222;
+      padding: 16px; overflow-y: auto; display: none; z-index: 50;
+    }
+    #detail.visible { display: block; }
+    #detail h2 { font-size: 14px; color: #fff; margin-bottom: 8px; word-break: break-all; }
+    #detail .metric { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; border-bottom: 1px solid #1a1a24; }
+    #detail .metric-label { color: #888; }
+    #detail .metric-value { color: #e0e0e0; font-weight: 500; }
+    #detail .section-title { font-size: 11px; color: #2563eb; text-transform: uppercase; margin-top: 12px; margin-bottom: 4px; }
+    #detail .dep-list { font-size: 11px; color: #aaa; }
+    #detail .dep-list div { padding: 2px 0; cursor: pointer; }
+    #detail .dep-list div:hover { color: #2563eb; }
+    #detail .close-btn {
+      position: absolute; top: 8px; right: 8px; background: none; border: none;
+      color: #666; cursor: pointer; font-size: 16px;
+    }
+
+    /* Legend */
+    #legend {
+      position: fixed; bottom: 16px; left: 16px; z-index: 50;
+      background: rgba(15,15,25,0.9); border: 1px solid #222; border-radius: 6px;
+      padding: 10px 14px; font-size: 11px;
+    }
+    #legend .item { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+    #legend .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+    /* Force analysis legend */
+    .force-legend { display: none; }
+    .force-legend.visible { display: block; }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <h1>Codebase Visualizer</h1>
+    <span id="stats"></span>
+    <div class="view-tabs">
+      <div class="view-tab active" data-view="galaxy">Galaxy</div>
+      <div class="view-tab" data-view="depflow">Dep Flow</div>
+      <div class="view-tab" data-view="hotspot">Hotspot</div>
+      <div class="view-tab" data-view="focus">Focus</div>
+      <div class="view-tab" data-view="module">Module</div>
+      <div class="view-tab" data-view="forces">Forces</div>
+    </div>
+    <input id="search" type="text" placeholder="Search files..." />
+  </div>
+  <div id="graph"></div>
+  <div id="detail">
+    <button class="close-btn" id="close-detail-btn">&times;</button>
+    <div id="detail-content"></div>
+  </div>
+  <div id="legend"></div>
+
+  <script src="https://unpkg.com/3d-force-graph@1"></script>
+  <script>
+    let graphData = null;
+    let forceData = null;
+    let graph3d = null;
+    let currentView = 'galaxy';
+    let focusNode = null;
+    let nodeById = new Map();
+
+    // Safe DOM helpers — prevent XSS
+    function el(tag, attrs, ...children) {
+      const node = document.createElement(tag);
+      if (attrs) {
+        for (const [k, v] of Object.entries(attrs)) {
+          if (k === 'style' && typeof v === 'object') {
+            Object.assign(node.style, v);
+          } else if (k.startsWith('on') && typeof v === 'function') {
+            node.addEventListener(k.slice(2), v);
+          } else if (k === 'className') {
+            node.className = v;
+          } else {
+            node.setAttribute(k, v);
+          }
+        }
+      }
+      for (const child of children) {
+        if (typeof child === 'string') node.appendChild(document.createTextNode(child));
+        else if (child instanceof Node) node.appendChild(child);
+      }
+      return node;
+    }
+
+    function text(str) { return document.createTextNode(String(str)); }
+
+    // Color palette for modules
+    const MODULE_COLORS = [
+      '#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c',
+      '#0891b2', '#ca8a04', '#e11d48', '#4f46e5', '#059669'
+    ];
+    const moduleColorMap = new Map();
+    let colorIdx = 0;
+
+    function getModuleColor(mod) {
+      if (!moduleColorMap.has(mod)) {
+        moduleColorMap.set(mod, MODULE_COLORS[colorIdx % MODULE_COLORS.length]);
+        colorIdx++;
+      }
+      return moduleColorMap.get(mod);
+    }
+
+    // Health color: green -> orange -> red
+    function healthColor(score) {
+      const r = Math.min(255, Math.floor(score * 2 * 255));
+      const g = Math.min(255, Math.floor((1 - score) * 2 * 255));
+      return `rgb(${r},${g},60)`;
+    }
+
+    async function init() {
+      try {
+        const [graphRes, forcesRes] = await Promise.all([
+          fetch('/api/graph'),
+          fetch('/api/forces')
+        ]);
+        if (!graphRes.ok || !forcesRes.ok) throw new Error('Server returned error');
+        graphData = await graphRes.json();
+        forceData = await forcesRes.json();
+      } catch (err) {
+        document.getElementById('graph').innerHTML = '';
+        document.getElementById('graph').appendChild(
+          el('div', { style: { color: '#ef4444', padding: '40px', textAlign: 'center', fontSize: '16px' } },
+            'Failed to load graph data: ' + (err instanceof Error ? err.message : String(err))
+          )
+        );
+        return;
+      }
+
+      // Build O(1) lookup map
+      nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
+
+      document.getElementById('stats').textContent =
+        `${graphData.stats.totalFiles} files | ${graphData.stats.totalFunctions} functions | ${graphData.stats.totalDependencies} deps | ${graphData.stats.circularDeps.length} circular`;
+
+      renderGalaxy();
+      setupEvents();
+    }
+
+    function renderGalaxy() {
+      currentView = 'galaxy';
+      const container = document.getElementById('graph');
+      container.innerHTML = '';
+
+      const data = {
+        nodes: graphData.nodes.map(n => ({
+          ...n,
+          color: getModuleColor(n.module),
+          size: 2 + Math.sqrt(n.pageRank * 10000),
+        })),
+        links: graphData.edges.map(e => ({
+          source: e.source, target: e.target,
+          color: e.isTypeOnly ? 'rgba(100,100,100,0.2)' : 'rgba(150,150,150,0.3)',
+        }))
+      };
+
+      graph3d = ForceGraph3D()(container)
+        .graphData(data)
+        .nodeLabel(n => `${n.path} (${n.loc} LOC)`)
+        .nodeColor(n => n.color)
+        .nodeVal(n => n.size)
+        .nodeOpacity(0.9)
+        .linkColor(l => l.color)
+        .linkWidth(0.3)
+        .linkOpacity(0.4)
+        .backgroundColor('#0a0a0f')
+        .onNodeClick(n => showDetail(n));
+
+      updateLegend('galaxy');
+    }
+
+    function renderDepFlow() {
+      currentView = 'depflow';
+      const container = document.getElementById('graph');
+      container.innerHTML = '';
+
+      const circularPairs = new Set();
+      (graphData.stats.circularDeps || []).forEach(cycle => {
+        for (let i = 0; i < cycle.length - 1; i++) {
+          circularPairs.add(`${cycle[i]}->${cycle[i+1]}`);
+        }
+      });
+
+      const data = {
+        nodes: graphData.nodes.map(n => ({
+          ...n,
+          color: getModuleColor(n.module),
+          size: 2 + Math.sqrt(n.pageRank * 10000),
+        })),
+        links: graphData.edges.map(e => ({
+          source: e.source, target: e.target,
+          color: circularPairs.has(`${e.source}->${e.target}`) || circularPairs.has(`${e.target}->${e.source}`)
+            ? 'rgba(220,38,38,0.8)' : 'rgba(150,150,150,0.3)',
+          width: circularPairs.has(`${e.source}->${e.target}`) ? 2 : 0.3,
+        }))
+      };
+
+      graph3d = ForceGraph3D()(container)
+        .graphData(data)
+        .dagMode('td')
+        .dagLevelDistance(50)
+        .nodeLabel(n => n.path)
+        .nodeColor(n => n.color)
+        .nodeVal(n => n.size)
+        .linkColor(l => l.color)
+        .linkWidth(l => l.width)
+        .backgroundColor('#0a0a0f')
+        .onNodeClick(n => showDetail(n));
+
+      updateLegend('depflow');
+    }
+
+    function renderHotspot() {
+      currentView = 'hotspot';
+      const container = document.getElementById('graph');
+      container.innerHTML = '';
+
+      const data = {
+        nodes: graphData.nodes.map(n => ({
+          ...n,
+          color: healthColor(n.coupling),
+          size: 1 + n.loc / 20,
+        })),
+        links: graphData.edges.map(e => ({
+          source: e.source, target: e.target,
+          color: 'rgba(150,150,150,0.2)',
+        }))
+      };
+
+      graph3d = ForceGraph3D()(container)
+        .graphData(data)
+        .nodeLabel(n => `${n.path} (coupling: ${n.coupling.toFixed(2)})`)
+        .nodeColor(n => n.color)
+        .nodeVal(n => n.size)
+        .linkColor(l => l.color)
+        .linkWidth(0.2)
+        .backgroundColor('#0a0a0f')
+        .onNodeClick(n => showDetail(n));
+
+      updateLegend('hotspot');
+    }
+
+    function renderFocus(targetId) {
+      currentView = 'focus';
+      focusNode = targetId;
+      const container = document.getElementById('graph');
+      container.innerHTML = '';
+
+      const neighbors = new Set();
+      neighbors.add(targetId);
+      graphData.edges.forEach(e => {
+        if (e.source === targetId) { neighbors.add(e.target); }
+        if (e.target === targetId) { neighbors.add(e.source); }
+      });
+      // 2-hop
+      const hop2 = new Set(neighbors);
+      graphData.edges.forEach(e => {
+        if (neighbors.has(e.source)) hop2.add(e.target);
+        if (neighbors.has(e.target)) hop2.add(e.source);
+      });
+
+      const data = {
+        nodes: graphData.nodes.map(n => ({
+          ...n,
+          color: n.id === targetId ? '#fbbf24'
+            : neighbors.has(n.id) ? getModuleColor(n.module)
+            : hop2.has(n.id) ? getModuleColor(n.module)
+            : '#1a1a24',
+          size: n.id === targetId ? 8 : neighbors.has(n.id) ? 4 : hop2.has(n.id) ? 2 : 0.5,
+          opacity: hop2.has(n.id) ? 0.9 : 0.1,
+        })),
+        links: graphData.edges.map(e => ({
+          source: e.source, target: e.target,
+          color: (hop2.has(e.source) && hop2.has(e.target)) ? 'rgba(150,150,150,0.5)' : 'rgba(50,50,50,0.05)',
+        }))
+      };
+
+      graph3d = ForceGraph3D()(container)
+        .graphData(data)
+        .nodeLabel(n => n.path)
+        .nodeColor(n => n.color)
+        .nodeVal(n => n.size)
+        .nodeOpacity(n => n.opacity)
+        .linkColor(l => l.color)
+        .linkWidth(0.3)
+        .backgroundColor('#0a0a0f')
+        .onNodeClick(n => {
+          if (n.id !== targetId) renderFocus(n.id);
+          showDetail(n);
+        });
+
+      updateLegend('focus');
+    }
+
+    function renderModule() {
+      currentView = 'module';
+      const container = document.getElementById('graph');
+      container.innerHTML = '';
+
+      const data = {
+        nodes: graphData.nodes.map(n => ({
+          ...n,
+          color: getModuleColor(n.module),
+          size: 2 + Math.sqrt(n.pageRank * 10000),
+        })),
+        links: graphData.edges.map(e => {
+          const sn = nodeById.get(e.source);
+          const tn = nodeById.get(e.target);
+          const crossModule = sn && tn && sn.module !== tn.module;
+          return {
+            source: e.source, target: e.target,
+            color: crossModule ? 'rgba(255,200,50,0.5)' : 'rgba(100,100,100,0.15)',
+            width: crossModule ? 1.5 : 0.2,
+          };
+        })
+      };
+
+      graph3d = ForceGraph3D()(container)
+        .graphData(data)
+        .nodeLabel(n => `${n.module}${n.label}`)
+        .nodeColor(n => n.color)
+        .nodeVal(n => n.size)
+        .linkColor(l => l.color)
+        .linkWidth(l => l.width)
+        .backgroundColor('#0a0a0f')
+        .onNodeClick(n => showDetail(n));
+
+      updateLegend('module');
+    }
+
+    function renderForces() {
+      currentView = 'forces';
+      const container = document.getElementById('graph');
+      container.innerHTML = '';
+
+      const tensionSet = new Set(forceData.tensionFiles.map(t => t.file));
+      const bridgeSet = new Set(forceData.bridgeFiles.map(b => b.file));
+      const junkModules = new Set(forceData.moduleCohesion.filter(m => m.verdict === 'JUNK_DRAWER').map(m => m.path));
+      const extractModules = new Set(forceData.extractionCandidates.map(e => e.target));
+
+      const data = {
+        nodes: graphData.nodes.map(n => {
+          let color = getModuleColor(n.module);
+          let size = 2 + Math.sqrt(n.pageRank * 10000);
+
+          if (tensionSet.has(n.id)) { color = '#fbbf24'; size *= 1.5; } // Yellow for tension
+          else if (bridgeSet.has(n.id)) { color = '#06b6d4'; size *= 1.3; } // Cyan for bridges
+          else if (junkModules.has(n.module)) { color = '#ef4444'; } // Red for junk drawer members
+          else if (extractModules.has(n.module)) { color = '#22c55e'; } // Green for extraction candidates
+
+          return { ...n, color, size };
+        }),
+        links: graphData.edges.map(e => {
+          const sn = nodeById.get(e.source);
+          const tn = nodeById.get(e.target);
+          const crossModule = sn && tn && sn.module !== tn.module;
+          return {
+            source: e.source, target: e.target,
+            color: crossModule ? 'rgba(239,68,68,0.4)' : 'rgba(100,100,100,0.15)',
+            width: crossModule ? 1 : 0.2,
+          };
+        })
+      };
+
+      graph3d = ForceGraph3D()(container)
+        .graphData(data)
+        .nodeLabel(n => {
+          if (tensionSet.has(n.id)) return `TENSION: ${n.path}`;
+          if (bridgeSet.has(n.id)) return `BRIDGE: ${n.path}`;
+          return n.path;
+        })
+        .nodeColor(n => n.color)
+        .nodeVal(n => n.size)
+        .linkColor(l => l.color)
+        .linkWidth(l => l.width)
+        .backgroundColor('#0a0a0f')
+        .onNodeClick(n => showDetail(n));
+
+      updateLegend('forces');
+    }
+
+    function showDetail(node) {
+      const panel = document.getElementById('detail');
+      const content = document.getElementById('detail-content');
+      content.innerHTML = '';
+
+      const imports = graphData.edges.filter(e => e.source === node.id);
+      const dependents = graphData.edges.filter(e => e.target === node.id);
+
+      function metric(label, value) {
+        return el('div', { className: 'metric' },
+          el('span', { className: 'metric-label' }, label),
+          el('span', { className: 'metric-value' }, String(value))
+        );
+      }
+
+      function depItem(targetId, symbols, onClick) {
+        const item = el('div', null, targetId + ' [' + symbols.join(', ') + ']');
+        item.addEventListener('click', onClick);
+        return item;
+      }
+
+      content.appendChild(el('h2', null, node.path));
+      content.appendChild(metric('LOC', node.loc));
+      content.appendChild(metric('Module', node.module));
+      content.appendChild(metric('PageRank', (node.pageRank || 0).toFixed(4)));
+      content.appendChild(metric('Betweenness', (node.betweenness || 0).toFixed(3)));
+      content.appendChild(metric('Coupling', (node.coupling || 0).toFixed(2)));
+      content.appendChild(metric('Fan In', node.fanIn || 0));
+      content.appendChild(metric('Fan Out', node.fanOut || 0));
+      content.appendChild(metric('Tension', (node.tension || 0).toFixed(2)));
+      content.appendChild(metric('Bridge', node.isBridge ? 'Yes' : 'No'));
+
+      if (node.functions && node.functions.length > 0) {
+        content.appendChild(el('div', { className: 'section-title' }, 'Exports (' + node.functions.length + ')'));
+        const exportList = el('div', { className: 'dep-list' });
+        node.functions.forEach(f => exportList.appendChild(el('div', null, f.name + ' (' + f.loc + ' LOC)')));
+        content.appendChild(exportList);
+      }
+
+      content.appendChild(el('div', { className: 'section-title' }, 'Dependencies (' + imports.length + ')'));
+      const depsList = el('div', { className: 'dep-list' });
+      if (imports.length === 0) {
+        depsList.appendChild(el('div', null, 'None'));
+      } else {
+        imports.forEach(e => depsList.appendChild(depItem(e.target, e.symbols, () => navigateTo(e.target))));
+      }
+      content.appendChild(depsList);
+
+      content.appendChild(el('div', { className: 'section-title' }, 'Dependents (' + dependents.length + ')'));
+      const deptsList = el('div', { className: 'dep-list' });
+      if (dependents.length === 0) {
+        deptsList.appendChild(el('div', null, 'None'));
+      } else {
+        dependents.forEach(e => deptsList.appendChild(depItem(e.source, e.symbols, () => navigateTo(e.source))));
+      }
+      content.appendChild(deptsList);
+
+      const focusBtn = el('button', {
+        style: { marginTop: '12px', padding: '4px 10px', fontSize: '11px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }
+      }, 'Focus View');
+      focusBtn.addEventListener('click', () => renderFocus(node.id));
+      content.appendChild(el('div', { style: { marginTop: '12px' } }, focusBtn));
+
+      panel.classList.add('visible');
+    }
+
+    function navigateTo(nodeId) {
+      const node = nodeById.get(nodeId);
+      if (node) showDetail(node);
+      if (currentView === 'focus') renderFocus(nodeId);
+    }
+
+    function closeDetail() {
+      document.getElementById('detail').classList.remove('visible');
+    }
+
+    function updateLegend(view) {
+      const legend = document.getElementById('legend');
+      const legends = {
+        galaxy: '<div class="item"><span>Node color = module | Node size = importance (PageRank)</span></div>',
+        depflow: '<div class="item"><span>Top = entry points | Bottom = leaf deps | <span style="color:#dc2626">Red edges = circular deps</span></span></div>',
+        hotspot: '<div class="item"><span style="color:#16a34a">Green = healthy</span> | <span style="color:#ea580c">Orange = moderate</span> | <span style="color:#dc2626">Red = high coupling</span> | Size = LOC</div>',
+        focus: '<div class="item"><span style="color:#fbbf24">Yellow = selected</span> | Bright = neighbors | Faded = distant | Click to shift focus</div>',
+        module: '<div class="item"><span>Color = module | <span style="color:#fbbf24">Yellow edges = cross-module deps</span></span></div>',
+        forces: '<div class="item"><span style="color:#fbbf24">Yellow = tension</span> | <span style="color:#06b6d4">Cyan = bridge</span> | <span style="color:#ef4444">Red = junk drawer</span> | <span style="color:#22c55e">Green = extraction candidate</span></div>',
+      };
+      legend.innerHTML = legends[view] || '';
+    }
+
+    function setupEvents() {
+      // Close button
+      document.getElementById('close-detail-btn').addEventListener('click', closeDetail);
+
+      // View tabs
+      document.querySelectorAll('.view-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          const view = tab.dataset.view;
+          switch (view) {
+            case 'galaxy': renderGalaxy(); break;
+            case 'depflow': renderDepFlow(); break;
+            case 'hotspot': renderHotspot(); break;
+            case 'focus': renderFocus(focusNode || graphData.nodes[0]?.id); break;
+            case 'module': renderModule(); break;
+            case 'forces': renderForces(); break;
+          }
+        });
+      });
+
+      // Search
+      const searchInput = document.getElementById('search');
+      searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase();
+        if (!query || !graph3d) return;
+        const match = graphData.nodes.find(n => n.path.toLowerCase().includes(query) || n.label.toLowerCase().includes(query));
+        if (match && graph3d.cameraPosition) {
+          const node = graph3d.graphData().nodes.find(nd => nd.id === match.id);
+          if (node) {
+            graph3d.cameraPosition({ x: node.x + 100, y: node.y + 100, z: node.z + 100 }, node, 1000);
+            showDetail(match);
+          }
+        }
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>

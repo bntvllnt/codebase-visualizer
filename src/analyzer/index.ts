@@ -1,0 +1,315 @@
+import type Graph from "graphology";
+import pagerank from "graphology-metrics/centrality/pagerank.js";
+import betweennessCentrality from "graphology-metrics/centrality/betweenness.js";
+import path from "path";
+import type {
+  FileMetrics,
+  ModuleMetrics,
+  ForceAnalysis,
+  TensionFile,
+  BridgeFile,
+  ExtractionCandidate,
+  CodebaseGraph,
+  GraphNode,
+} from "../types/index.js";
+import { type BuiltGraph, detectCircularDeps } from "../graph/index.js";
+
+export function analyzeGraph(built: BuiltGraph): CodebaseGraph {
+  const { graph, nodes, edges } = built;
+  const fileNodes = nodes.filter((n) => n.type === "file");
+
+  // Core metrics
+  const pageRanks = computePageRank(graph);
+  const betweennessScores = computeBetweenness(graph);
+  const circularDeps = detectCircularDeps(graph);
+
+  // Per-file metrics
+  const fileMetrics = new Map<string, FileMetrics>();
+  for (const node of fileNodes) {
+    const fanIn = graph.inDegree(node.id);
+    const fanOut = graph.outDegree(node.id);
+    const coupling = fanOut === 0 && fanIn === 0 ? 0 : fanOut / (fanIn + fanOut);
+    const pr = pageRanks.get(node.id) ?? 0;
+    const btwn = betweennessScores.get(node.id) ?? 0;
+
+    fileMetrics.set(node.id, {
+      pageRank: pr,
+      betweenness: btwn,
+      fanIn,
+      fanOut,
+      coupling,
+      tension: 0, // computed in force analysis
+      isBridge: btwn > 0.1,
+    });
+  }
+
+  // Module metrics
+  const moduleMetrics = computeModuleMetrics(graph, fileNodes, fileMetrics);
+
+  // Centrifuge force analysis
+  const forceAnalysis = computeForceAnalysis(graph, fileNodes, fileMetrics, moduleMetrics, betweennessScores);
+
+  // Update tension in fileMetrics from force analysis
+  for (const tf of forceAnalysis.tensionFiles) {
+    const existing = fileMetrics.get(tf.file);
+    if (existing) {
+      existing.tension = tf.tension;
+    }
+  }
+
+  return {
+    nodes,
+    edges,
+    fileMetrics,
+    moduleMetrics,
+    forceAnalysis,
+    stats: {
+      totalFiles: fileNodes.length,
+      totalFunctions: nodes.filter((n) => n.type === "function").length,
+      totalDependencies: edges.length,
+      circularDeps,
+    },
+  };
+}
+
+function computePageRank(graph: Graph): Map<string, number> {
+  const result = new Map<string, number>();
+  try {
+    const scores = pagerank(graph, { alpha: 0.85, getEdgeWeight: "weight" });
+    for (const [node, score] of Object.entries(scores)) {
+      result.set(node, score);
+    }
+  } catch {
+    // Fallback: uniform score
+    graph.forEachNode((node: string) => result.set(node, 1 / graph.order));
+  }
+  return result;
+}
+
+function computeBetweenness(graph: Graph): Map<string, number> {
+  const result = new Map<string, number>();
+  try {
+    const scores = betweennessCentrality(graph, { normalized: true });
+    for (const [node, score] of Object.entries(scores)) {
+      result.set(node, score);
+    }
+  } catch {
+    graph.forEachNode((node: string) => result.set(node, 0));
+  }
+  return result;
+}
+
+function computeModuleMetrics(
+  graph: Graph,
+  fileNodes: GraphNode[],
+  _fileMetrics: Map<string, FileMetrics>
+): Map<string, ModuleMetrics> {
+  const modules = new Map<string, GraphNode[]>();
+
+  // Group files by module
+  for (const node of fileNodes) {
+    const existing = modules.get(node.module) ?? [];
+    existing.push(node);
+    modules.set(node.module, existing);
+  }
+
+  const moduleMetrics = new Map<string, ModuleMetrics>();
+
+  for (const [modulePath, files] of modules) {
+    const fileIds = new Set(files.map((f) => f.id));
+    let internalDeps = 0;
+    let externalDeps = 0;
+    let totalLoc = 0;
+    let totalExports = 0;
+    const dependsOnSet = new Set<string>();
+    const dependedBySet = new Set<string>();
+
+    for (const file of files) {
+      totalLoc += file.loc;
+      totalExports += (graph.getNodeAttribute(file.id, "exportCount") as number | undefined) ?? 0;
+
+      // Count outgoing edges
+      for (const neighbor of graph.outNeighbors(file.id)) {
+        if (graph.getNodeAttribute(neighbor, "type") !== "file") continue;
+        const neighborModule = graph.getNodeAttribute(neighbor, "module") as string;
+        if (fileIds.has(neighbor)) {
+          internalDeps++;
+        } else {
+          externalDeps++;
+          dependsOnSet.add(neighborModule);
+        }
+      }
+
+      // Count incoming edges from other modules
+      for (const neighbor of graph.inNeighbors(file.id)) {
+        if (graph.getNodeAttribute(neighbor, "type") !== "file") continue;
+        const neighborModule = graph.getNodeAttribute(neighbor, "module") as string;
+        if (!fileIds.has(neighbor)) {
+          dependedBySet.add(neighborModule);
+        }
+      }
+    }
+
+    const totalDeps = internalDeps + externalDeps;
+    const cohesion = totalDeps === 0 ? 1 : internalDeps / totalDeps;
+
+    // Escape velocity: high external use + low internal deps
+    const externalUseCount = dependedBySet.size;
+    const escapeVelocity =
+      externalDeps === 0 && externalUseCount > 0
+        ? Math.min(1, externalUseCount / (modules.size - 1))
+        : 0;
+
+    moduleMetrics.set(modulePath, {
+      path: modulePath,
+      files: files.length,
+      loc: totalLoc,
+      exports: totalExports,
+      internalDeps,
+      externalDeps,
+      cohesion: Math.round(cohesion * 100) / 100,
+      escapeVelocity: Math.round(escapeVelocity * 100) / 100,
+      dependsOn: [...dependsOnSet],
+      dependedBy: [...dependedBySet],
+    });
+  }
+
+  return moduleMetrics;
+}
+
+function computeForceAnalysis(
+  graph: Graph,
+  fileNodes: GraphNode[],
+  fileMetrics: Map<string, FileMetrics>,
+  moduleMetrics: Map<string, ModuleMetrics>,
+  betweennessScores: Map<string, number>
+): ForceAnalysis {
+  // Module cohesion verdicts
+  type CohesionVerdict = "COHESIVE" | "MODERATE" | "JUNK_DRAWER";
+  const moduleCohesion = [...moduleMetrics.values()].map((m) => {
+    const verdict: CohesionVerdict = m.cohesion >= 0.6 ? "COHESIVE" : m.cohesion >= 0.4 ? "MODERATE" : "JUNK_DRAWER";
+    return { ...m, verdict };
+  });
+
+  // Tension files: files pulled by multiple modules
+  const tensionFiles: TensionFile[] = [];
+  for (const file of fileNodes) {
+    const modulePulls = new Map<string, { strength: number; symbols: string[] }>();
+
+    for (const neighbor of graph.outNeighbors(file.id)) {
+      if (graph.getNodeAttribute(neighbor, "type") !== "file") continue;
+      const neighborModule = graph.getNodeAttribute(neighbor, "module") as string;
+      if (neighborModule === file.module) continue;
+
+      const edgeAttrs = graph.getEdgeAttributes(file.id, neighbor);
+      const existing = modulePulls.get(neighborModule) ?? { strength: 0, symbols: [] };
+      existing.strength += (edgeAttrs.weight as number) || 1;
+      const edgeSymbols = edgeAttrs.symbols as string[] | undefined;
+      if (edgeSymbols) existing.symbols.push(...edgeSymbols);
+      modulePulls.set(neighborModule, existing);
+    }
+
+    // Also count inbound pulls
+    for (const neighbor of graph.inNeighbors(file.id)) {
+      if (graph.getNodeAttribute(neighbor, "type") !== "file") continue;
+      const neighborModule = graph.getNodeAttribute(neighbor, "module") as string;
+      if (neighborModule === file.module) continue;
+
+      const existing = modulePulls.get(neighborModule) ?? { strength: 0, symbols: [] };
+      existing.strength += 0.5; // Inbound pull is weaker
+      modulePulls.set(neighborModule, existing);
+    }
+
+    if (modulePulls.size >= 2) {
+      const pulls = [...modulePulls.entries()].map(([mod, data]) => ({
+        module: mod,
+        strength: Math.round(data.strength * 100) / 100,
+        symbols: [...new Set(data.symbols)],
+      }));
+
+      // Tension = entropy-based evenness of pulls
+      const totalStrength = pulls.reduce((sum, p) => sum + p.strength, 0);
+      const probs = pulls.map((p) => p.strength / totalStrength);
+      const maxEntropy = Math.log(pulls.length);
+      const entropy = -probs.reduce((sum, p) => sum + (p > 0 ? p * Math.log(p) : 0), 0);
+      const tension = maxEntropy > 0 ? Math.round((entropy / maxEntropy) * 100) / 100 : 0;
+
+      if (tension > 0.3) {
+        const topModules = pulls
+          .sort((a, b) => b.strength - a.strength)
+          .slice(0, 2)
+          .map((p) => path.basename(p.module.replace(/\/$/, "")));
+
+        tensionFiles.push({
+          file: file.id,
+          tension,
+          pulledBy: pulls.sort((a, b) => b.strength - a.strength),
+          recommendation: `Split into ${topModules.map((m) => `${m}-${path.basename(file.id)}`).join(" and ")}`,
+        });
+      }
+    }
+  }
+
+  // Bridge files: high betweenness centrality
+  const bridgeFiles: BridgeFile[] = [];
+  for (const file of fileNodes) {
+    const btwn = betweennessScores.get(file.id) ?? 0;
+    if (btwn < 0.05) continue;
+
+    const connectedModules = new Set<string>();
+    for (const neighbor of graph.neighbors(file.id)) {
+      if (graph.getNodeAttribute(neighbor, "type") !== "file") continue;
+      const mod = graph.getNodeAttribute(neighbor, "module") as string;
+      if (mod !== file.module) connectedModules.add(mod);
+    }
+
+    if (connectedModules.size >= 2) {
+      bridgeFiles.push({
+        file: file.id,
+        betweenness: Math.round(btwn * 100) / 100,
+        connects: [...connectedModules],
+        role: `Bridge between ${connectedModules.size} otherwise-disconnected modules`,
+      });
+    }
+  }
+
+  // Extraction candidates: high escape velocity modules
+  const extractionCandidates: ExtractionCandidate[] = [];
+  for (const mod of moduleMetrics.values()) {
+    if (mod.escapeVelocity < 0.5) continue;
+    if (mod.files < 1) continue;
+
+    extractionCandidates.push({
+      target: mod.path,
+      escapeVelocity: mod.escapeVelocity,
+      internalDeps: mod.internalDeps,
+      externalDeps: mod.externalDeps,
+      dependedByModules: mod.dependedBy.length,
+      recommendation: `Extract to standalone package — ${mod.externalDeps === 0 ? "0 deps on host codebase" : `${mod.externalDeps} deps to resolve`}`,
+    });
+  }
+
+  // Summary
+  const junkDrawers = moduleCohesion.filter((m) => m.verdict === "JUNK_DRAWER");
+  const summaryParts: string[] = [];
+  if (junkDrawers.length > 0) {
+    summaryParts.push(`${junkDrawers.length} junk-drawer module(s) (${junkDrawers.map((m) => m.path).join(", ")})`);
+  }
+  if (tensionFiles.length > 0) {
+    summaryParts.push(`${tensionFiles.length} tension file(s) need splitting`);
+  }
+  if (extractionCandidates.length > 0) {
+    summaryParts.push(`${extractionCandidates.map((e) => e.target).join(", ")} ready for extraction`);
+  }
+  if (summaryParts.length === 0) {
+    summaryParts.push("Codebase architecture looks healthy. No major force imbalances detected.");
+  }
+
+  return {
+    moduleCohesion,
+    tensionFiles: tensionFiles.sort((a, b) => b.tension - a.tension),
+    bridgeFiles: bridgeFiles.sort((a, b) => b.betweenness - a.betweenness),
+    extractionCandidates: extractionCandidates.sort((a, b) => b.escapeVelocity - a.escapeVelocity),
+    summary: summaryParts.join(". ") + ".",
+  };
+}

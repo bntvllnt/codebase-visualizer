@@ -8,28 +8,16 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #0a0a0f; color: #e0e0e0; font-family: 'Inter', -apple-system, sans-serif; overflow: hidden; user-select: none; }
 
-    /* Project title — top left */
+    /* Project info — top left */
     #project-bar {
       position: fixed; top: 12px; left: 16px; z-index: 100;
-      padding: 6px 14px; background: rgba(10,10,15,0.85); border: 1px solid #222;
-      border-radius: 10px; backdrop-filter: blur(12px);
-    }
-    #project-bar h1 { font-size: 14px; font-weight: 600; color: #fff; white-space: nowrap; }
-
-    /* Stats panel — below project title */
-    #stats-panel {
-      position: fixed; top: 46px; left: 16px; z-index: 100;
       padding: 10px 14px; background: rgba(10,10,15,0.85); border: 1px solid #222;
       border-radius: 10px; backdrop-filter: blur(12px);
-      font-size: 11px;
     }
-    .stats-title {
-      font-size: 10px; color: #2563eb; text-transform: uppercase;
-      letter-spacing: 0.5px; margin-bottom: 6px;
-    }
+    #project-bar h1 { font-size: 14px; font-weight: 600; color: #fff; white-space: nowrap; margin-bottom: 8px; }
     .stats-row {
       display: flex; justify-content: space-between; gap: 16px;
-      padding: 2px 0; color: #888;
+      padding: 2px 0; color: #888; font-size: 11px;
     }
     .stats-row span { color: #e0e0e0; font-weight: 500; }
 
@@ -37,13 +25,11 @@
     #view-bar {
       position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 100;
       display: flex; align-items: center; gap: 4px;
-      padding: 6px 10px; background: rgba(10,10,15,0.85); border: 1px solid #222;
-      border-radius: 10px; backdrop-filter: blur(12px);
     }
     .view-tab {
       padding: 4px 10px; font-size: 11px; border-radius: 4px;
-      background: #1a1a24; color: #888; border: 1px solid #333;
-      cursor: pointer; transition: all 0.2s;
+      background: rgba(10,10,15,0.85); color: #888; border: 1px solid #333;
+      cursor: pointer; transition: all 0.2s; backdrop-filter: blur(12px);
     }
     .view-tab:hover { background: #252530; color: #ccc; }
     .view-tab.active { background: #2563eb; color: #fff; border-color: #2563eb; }
@@ -95,25 +81,13 @@
     .force-legend { display: none; }
     .force-legend.visible { display: block; }
 
-    /* Config panel */
-    #config-toggle {
-      position: fixed; bottom: 16px; right: 16px; z-index: 100;
-      width: 36px; height: 36px; border-radius: 50%;
-      background: #1a1a24; border: 1px solid #333; color: #888;
-      font-size: 18px; cursor: pointer; transition: all 0.2s;
-      display: flex; align-items: center; justify-content: center;
-    }
-    #config-toggle:hover { background: #252530; color: #fff; border-color: #2563eb; }
-    #config-toggle.active { background: #2563eb; color: #fff; border-color: #2563eb; }
-
+    /* Config panel — always visible, bottom right */
     #config-panel {
-      position: fixed; bottom: 60px; right: 16px; z-index: 100;
+      position: fixed; bottom: 16px; right: 16px; z-index: 100;
       width: 240px; background: rgba(15,15,25,0.85);
       border: 1px solid #222; border-radius: 10px;
-      padding: 16px; display: block; backdrop-filter: blur(12px);
+      padding: 16px; backdrop-filter: blur(12px);
     }
-    #config-panel.hidden { display: none; }
-
     .config-title {
       font-size: 12px; font-weight: 600; color: #fff;
       margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;
@@ -161,9 +135,6 @@
 <body>
   <div id="project-bar">
     <h1 id="project-title">Codebase Visualizer</h1>
-  </div>
-  <div id="stats-panel">
-    <div class="stats-title">Stats</div>
     <div class="stats-row">Files <span id="stat-files">—</span></div>
     <div class="stats-row">Functions <span id="stat-functions">—</span></div>
     <div class="stats-row">Dependencies <span id="stat-deps">—</span></div>
@@ -185,7 +156,6 @@
   </div>
   <div id="legend"></div>
 
-  <button id="config-toggle" title="Settings">&#9881;</button>
   <div id="config-panel">
     <div class="config-title">Settings</div>
     <div class="config-section">Nodes</div>
@@ -841,6 +811,63 @@
       legend.innerHTML = legends[view] || '';
     }
 
+    function setupConfig() {
+      let debounceTimer = null;
+      function scheduleRerender() {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(rerender, 150);
+      }
+
+      function liveUpdate(prop, val) {
+        if (!graph3d) return;
+        if (prop === 'nodeOpacity') graph3d.nodeOpacity(val);
+        else if (prop === 'linkOpacity') graph3d.linkOpacity(val);
+        else if (prop === 'charge') { applyForces(); return; }
+        else if (prop === 'distance') { applyForces(); return; }
+      }
+
+      const sliders = [
+        { id: 'cfg-nodeOpacity', key: 'nodeOpacity', valId: 'val-nodeOpacity', live: true, fmt: v => v.toFixed(2) },
+        { id: 'cfg-nodeSize', key: 'nodeSize', valId: 'val-nodeSize', live: false, fmt: v => v.toFixed(1) },
+        { id: 'cfg-isolatedDim', key: 'isolatedDim', valId: 'val-isolatedDim', live: false, fmt: v => v.toFixed(2) },
+        { id: 'cfg-linkOpacity', key: 'linkOpacity', valId: 'val-linkOpacity', live: false, fmt: v => v.toFixed(2) },
+        { id: 'cfg-linkWidth', key: 'linkWidth', valId: 'val-linkWidth', live: false, fmt: v => v.toFixed(1) },
+        { id: 'cfg-charge', key: 'charge', valId: 'val-charge', live: true, fmt: v => String(Math.round(v)) },
+        { id: 'cfg-distance', key: 'distance', valId: 'val-distance', live: true, fmt: v => String(Math.round(v)) },
+      ];
+
+      sliders.forEach(s => {
+        const input = document.getElementById(s.id);
+        const display = document.getElementById(s.valId);
+        input.addEventListener('input', () => {
+          const val = parseFloat(input.value);
+          cfg[s.key] = val;
+          display.textContent = s.fmt(val);
+          if (s.live) liveUpdate(s.key, val);
+          else scheduleRerender();
+        });
+      });
+
+      document.getElementById('cfg-linkColor').addEventListener('input', (e) => {
+        cfg.linkColor = e.target.value;
+        scheduleRerender();
+      });
+
+      document.getElementById('cfg-moduleBoxes').addEventListener('change', (e) => {
+        cfg.showModuleBoxes = e.target.checked;
+        if (!cfg.showModuleBoxes) clearModuleBoxes();
+        else updateModuleBoxes();
+      });
+
+      const boxInput = document.getElementById('cfg-boxOpacity');
+      const boxDisplay = document.getElementById('val-boxOpacity');
+      boxInput.addEventListener('input', () => {
+        cfg.boxOpacity = parseFloat(boxInput.value);
+        boxDisplay.textContent = cfg.boxOpacity.toFixed(2);
+        moduleBoxes.forEach(obj => { obj.lines.material.opacity = cfg.boxOpacity; });
+      });
+    }
+
     function setupEvents() {
       // Close button
       document.getElementById('close-detail-btn').addEventListener('click', closeDetail);
@@ -878,75 +905,6 @@
       });
     }
 
-    function setupConfig() {
-      const toggle = document.getElementById('config-toggle');
-      const panel = document.getElementById('config-panel');
-
-      toggle.classList.add('active');
-      toggle.addEventListener('click', () => {
-        panel.classList.toggle('hidden');
-        toggle.classList.toggle('active');
-      });
-
-      let debounceTimer = null;
-      function scheduleRerender() {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(rerender, 150);
-      }
-
-      function liveUpdate(prop, val) {
-        if (!graph3d) return;
-        if (prop === 'nodeOpacity') graph3d.nodeOpacity(val);
-        else if (prop === 'linkOpacity') graph3d.linkOpacity(val);
-        else if (prop === 'charge') { applyForces(); return; }
-        else if (prop === 'distance') { applyForces(); return; }
-      }
-
-      const sliders = [
-        { id: 'cfg-nodeOpacity', key: 'nodeOpacity', valId: 'val-nodeOpacity', live: true, fmt: v => v.toFixed(2) },
-        { id: 'cfg-nodeSize', key: 'nodeSize', valId: 'val-nodeSize', live: false, fmt: v => v.toFixed(1) },
-        { id: 'cfg-isolatedDim', key: 'isolatedDim', valId: 'val-isolatedDim', live: false, fmt: v => v.toFixed(2) },
-        { id: 'cfg-linkOpacity', key: 'linkOpacity', valId: 'val-linkOpacity', live: false, fmt: v => v.toFixed(2) },
-        { id: 'cfg-linkWidth', key: 'linkWidth', valId: 'val-linkWidth', live: false, fmt: v => v.toFixed(1) },
-        { id: 'cfg-charge', key: 'charge', valId: 'val-charge', live: true, fmt: v => String(Math.round(v)) },
-        { id: 'cfg-distance', key: 'distance', valId: 'val-distance', live: true, fmt: v => String(Math.round(v)) },
-      ];
-
-      sliders.forEach(s => {
-        const input = document.getElementById(s.id);
-        const display = document.getElementById(s.valId);
-
-        input.addEventListener('input', () => {
-          const val = parseFloat(input.value);
-          cfg[s.key] = val;
-          display.textContent = s.fmt(val);
-          if (s.live) liveUpdate(s.key, val);
-          else scheduleRerender();
-        });
-      });
-
-      // Link color picker
-      document.getElementById('cfg-linkColor').addEventListener('input', (e) => {
-        cfg.linkColor = e.target.value;
-        scheduleRerender();
-      });
-
-      // Module boxes toggle
-      document.getElementById('cfg-moduleBoxes').addEventListener('change', (e) => {
-        cfg.showModuleBoxes = e.target.checked;
-        if (!cfg.showModuleBoxes) clearModuleBoxes();
-        else updateModuleBoxes();
-      });
-
-      // Box opacity slider
-      const boxInput = document.getElementById('cfg-boxOpacity');
-      const boxDisplay = document.getElementById('val-boxOpacity');
-      boxInput.addEventListener('input', () => {
-        cfg.boxOpacity = parseFloat(boxInput.value);
-        boxDisplay.textContent = cfg.boxOpacity.toFixed(2);
-        moduleBoxes.forEach(obj => { obj.lines.material.opacity = cfg.boxOpacity; });
-      });
-    }
 
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', init);

@@ -3,6 +3,7 @@ import pagerank from "graphology-metrics/centrality/pagerank.js";
 import betweennessCentrality from "graphology-metrics/centrality/betweenness.js";
 import path from "path";
 import type {
+  ParsedFile,
   FileMetrics,
   ModuleMetrics,
   ForceAnalysis,
@@ -14,9 +15,25 @@ import type {
 } from "../types/index.js";
 import { type BuiltGraph, detectCircularDeps } from "../graph/index.js";
 
-export function analyzeGraph(built: BuiltGraph): CodebaseGraph {
+export function analyzeGraph(built: BuiltGraph, parsedFiles?: ParsedFile[]): CodebaseGraph {
   const { graph, nodes, edges } = built;
   const fileNodes = nodes.filter((n) => n.type === "file");
+
+  // Build lookup from parsed files
+  const parsedByPath = new Map<string, ParsedFile>();
+  if (parsedFiles) {
+    for (const f of parsedFiles) {
+      parsedByPath.set(f.relativePath, f);
+    }
+  }
+
+  // Build set of all consumed symbols (for dead export detection)
+  const consumedSymbols = new Map<string, Set<string>>();
+  for (const edge of edges) {
+    const existing = consumedSymbols.get(edge.target) ?? new Set<string>();
+    for (const sym of edge.symbols) existing.add(sym);
+    consumedSymbols.set(edge.target, existing);
+  }
 
   // Core metrics
   const pageRanks = computePageRank(graph);
@@ -32,6 +49,19 @@ export function analyzeGraph(built: BuiltGraph): CodebaseGraph {
     const pr = pageRanks.get(node.id) ?? 0;
     const btwn = betweennessScores.get(node.id) ?? 0;
 
+    const parsed = parsedByPath.get(node.id);
+    const avgComplexity = parsed && parsed.exports.length > 0
+      ? parsed.exports.reduce((sum, e) => sum + e.complexity, 0) / parsed.exports.length
+      : 1;
+
+    // Dead exports: exports not consumed by any edge
+    const consumed = consumedSymbols.get(node.id) ?? new Set<string>();
+    const deadExports = parsed
+      ? parsed.exports
+          .filter((e) => !e.isDefault && !consumed.has(e.name))
+          .map((e) => e.name)
+      : [];
+
     fileMetrics.set(node.id, {
       pageRank: pr,
       betweenness: btwn,
@@ -40,7 +70,31 @@ export function analyzeGraph(built: BuiltGraph): CodebaseGraph {
       coupling,
       tension: 0, // computed in force analysis
       isBridge: btwn > 0.1,
+      churn: parsed?.churn ?? 0,
+      cyclomaticComplexity: Math.round(avgComplexity * 100) / 100,
+      blastRadius: 0, // computed after all nodes are processed
+      deadExports,
+      hasTests: parsed?.testFile !== undefined,
+      testFile: parsed?.testFile ?? "",
     });
+  }
+
+  // Blast radius: BFS transitive dependents per file
+  for (const node of fileNodes) {
+    const visited = new Set<string>();
+    const queue = [node.id];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (current === undefined) break;
+      for (const dependent of graph.inNeighbors(current)) {
+        if (graph.getNodeAttribute(dependent, "type") !== "file") continue;
+        if (visited.has(dependent)) continue;
+        visited.add(dependent);
+        queue.push(dependent);
+      }
+    }
+    const metrics = fileMetrics.get(node.id);
+    if (metrics) metrics.blastRadius = visited.size;
   }
 
   // Module metrics

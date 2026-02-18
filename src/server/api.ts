@@ -33,6 +33,12 @@ export function createApiRoutes(graph: CodebaseGraph, projectName?: string): Rou
         fanOut: metrics?.fanOut ?? 0,
         tension: metrics?.tension ?? 0,
         isBridge: metrics?.isBridge ?? false,
+        churn: metrics?.churn ?? 0,
+        cyclomaticComplexity: metrics?.cyclomaticComplexity ?? 1,
+        blastRadius: metrics?.blastRadius ?? 0,
+        deadExports: metrics?.deadExports ?? [],
+        hasTests: metrics?.hasTests ?? false,
+        testFile: metrics?.testFile ?? "",
         functions: functionNodes
           .filter((fn) => fn.parentFile === n.id)
           .map((fn) => ({ name: fn.label, loc: fn.loc })),
@@ -96,6 +102,10 @@ export function createApiRoutes(graph: CodebaseGraph, projectName?: string): Rou
         case "fan_out": score = metrics.fanOut; break;
         case "betweenness": score = metrics.betweenness; break;
         case "tension": score = metrics.tension; break;
+        case "churn": score = metrics.churn; break;
+        case "complexity": score = metrics.cyclomaticComplexity; break;
+        case "blast_radius": score = metrics.blastRadius; break;
+        case "coverage": score = metrics.hasTests ? 0 : 1; break;
         default: score = 0;
       }
       scored.push({ path: filePath, score });

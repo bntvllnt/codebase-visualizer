@@ -44,7 +44,7 @@ program
       );
 
       // Analyze
-      const codebaseGraph = analyzeGraph(built);
+      const codebaseGraph = analyzeGraph(built, files);
       console.log(
         `Analysis complete: ${codebaseGraph.stats.circularDeps.length} circular deps, ` +
           `${codebaseGraph.forceAnalysis.tensionFiles.length} tension files`

@@ -11,13 +11,18 @@ src/
   types/index.ts      <- All TypeScript interfaces (single source of truth)
   parser/index.ts     <- TS Compiler API parser (files, functions, imports)
   graph/index.ts      <- graphology graph builder + circular dep detection
-  analyzer/index.ts   <- Metrics engine (PageRank, betweenness, cohesion, tension, escape velocity)
-  mcp/index.ts        <- MCP stdio server (6 tools)
+  analyzer/index.ts   <- Metrics engine (PageRank, betweenness, cohesion, tension, churn, complexity, blast radius, dead exports)
+  mcp/index.ts        <- MCP stdio server (7 tools)
   server/index.ts     <- Express web server
   server/api.ts       <- REST API routes
   cli.ts              <- CLI entry point (commander)
 public/
-  index.html          <- Client-side 3D renderer (6 views, uses 3d-force-graph from CDN)
+  index.html          <- Client-side 3D renderer (8 views, uses 3d-force-graph from CDN)
+docs/
+  architecture.md     <- Pipeline, module map, data flow, design decisions
+  data-model.md       <- All TypeScript interfaces with field descriptions
+  metrics.md          <- Per-file + module metrics, force analysis, complexity scoring
+  mcp-tools.md        <- 7 MCP tools: inputs, outputs, use cases, selection guide
 specs/
   active/             <- Current spec
 ```
@@ -93,6 +98,17 @@ All four must pass before shipping. Run in order: lint -> typecheck -> build -> 
 - Parser's `walkDir` tracks visited dirs to prevent symlink loops
 - Circular dep detection uses iterative DFS (not recursive) to avoid stack overflow
 - MCP tool handlers must be async (SDK requirement) even if they don't await
+
+## Documentation (`docs/`)
+
+LLM knowledge base for building this tool. Single source of truth per topic:
+
+| Doc | Covers | Update When |
+|-----|--------|-------------|
+| `docs/architecture.md` | Pipeline, module map, data flow, design decisions | New module or pipeline change |
+| `docs/data-model.md` | All TypeScript interfaces (mirrors `src/types/index.ts`) | Type changes |
+| `docs/metrics.md` | Per-file + module metrics, force analysis, complexity scoring | New metric added |
+| `docs/mcp-tools.md` | 7 MCP tools with inputs/outputs/use cases | New tool or param change |
 
 ## Testing (BLOCKING)
 

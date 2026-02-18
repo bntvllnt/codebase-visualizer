@@ -95,6 +95,12 @@ export async function startMcpServer(graph: CodebaseGraph): Promise<void> {
           coupling: Math.round(metrics.coupling * 100) / 100,
           tension: metrics.tension,
           isBridge: metrics.isBridge,
+          churn: metrics.churn,
+          cyclomaticComplexity: metrics.cyclomaticComplexity,
+          blastRadius: metrics.blastRadius,
+          deadExports: metrics.deadExports,
+          hasTests: metrics.hasTests,
+          testFile: metrics.testFile,
         },
       };
 
@@ -158,10 +164,10 @@ export async function startMcpServer(graph: CodebaseGraph): Promise<void> {
   // Tool 4: find_hotspots
   server.tool(
     "find_hotspots",
-    "Find the most problematic files by a given metric (coupling, pagerank, fan_in, fan_out, betweenness, tension, escape_velocity)",
+    "Find the most problematic files by a given metric (coupling, pagerank, fan_in, fan_out, betweenness, tension, escape_velocity, churn, complexity, blast_radius, coverage)",
     {
       metric: z
-        .enum(["coupling", "pagerank", "fan_in", "fan_out", "betweenness", "tension", "escape_velocity"])
+        .enum(["coupling", "pagerank", "fan_in", "fan_out", "betweenness", "tension", "escape_velocity", "churn", "complexity", "blast_radius", "coverage"])
         .describe("Metric to rank by"),
       limit: z.number().optional().describe("Number of results (default: 10)"),
     },
@@ -208,6 +214,22 @@ export async function startMcpServer(graph: CodebaseGraph): Promise<void> {
             case "tension":
               score = metrics.tension;
               reason = score > 0 ? "pulled by multiple modules" : "no tension";
+              break;
+            case "churn":
+              score = metrics.churn;
+              reason = `${metrics.churn} commits touching this file`;
+              break;
+            case "complexity":
+              score = metrics.cyclomaticComplexity;
+              reason = `avg cyclomatic complexity: ${metrics.cyclomaticComplexity.toFixed(1)}`;
+              break;
+            case "blast_radius":
+              score = metrics.blastRadius;
+              reason = `${metrics.blastRadius} transitive dependents affected if changed`;
+              break;
+            case "coverage":
+              score = metrics.hasTests ? 0 : 1;
+              reason = metrics.hasTests ? `tested (${metrics.testFile})` : "no test file found";
               break;
             default:
               score = 0;
@@ -297,6 +319,50 @@ export async function startMcpServer(graph: CodebaseGraph): Promise<void> {
         bridgeFiles: graph.forceAnalysis.bridgeFiles,
         extractionCandidates: graph.forceAnalysis.extractionCandidates,
         summary: graph.forceAnalysis.summary,
+      };
+
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    }
+  );
+
+  // Tool 7: find_dead_exports
+  server.tool(
+    "find_dead_exports",
+    "Find unused exports across the codebase — exports that no other file imports",
+    {
+      module: z.string().optional().describe("Filter by module path (default: all modules)"),
+      limit: z.number().optional().describe("Max results (default: 20)"),
+    },
+    async ({ module, limit }) => {
+      const maxResults = limit ?? 20;
+      const deadFiles: Array<{ path: string; module: string; deadExports: string[]; totalExports: number }> = [];
+
+      for (const [filePath, metrics] of graph.fileMetrics) {
+        if (metrics.deadExports.length === 0) continue;
+        const node = graph.nodes.find((n) => n.id === filePath);
+        if (!node) continue;
+        if (module && node.module !== module) continue;
+
+        const totalExports = graph.nodes.filter((n) => n.parentFile === filePath).length;
+        deadFiles.push({
+          path: filePath,
+          module: node.module,
+          deadExports: metrics.deadExports,
+          totalExports,
+        });
+      }
+
+      const sorted = deadFiles
+        .sort((a, b) => b.deadExports.length - a.deadExports.length)
+        .slice(0, maxResults);
+
+      const totalDead = sorted.reduce((sum, f) => sum + f.deadExports.length, 0);
+      const result = {
+        totalDeadExports: totalDead,
+        files: sorted,
+        summary: totalDead > 0
+          ? `${totalDead} unused exports across ${sorted.length} files. Consider removing to reduce API surface.`
+          : "No dead exports found.",
       };
 
       return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };

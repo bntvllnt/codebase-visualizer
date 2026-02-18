@@ -9,6 +9,8 @@ function makeFile(relativePath: string, overrides?: Partial<ParsedFile>): Parsed
     loc: 10,
     exports: [],
     imports: [],
+    churn: 0,
+    isTestFile: false,
     ...overrides,
   };
 }
@@ -27,9 +29,9 @@ describe("buildGraph", () => {
     const files = [
       makeFile("src/a.ts", {
         exports: [
-          { name: "foo", type: "function", loc: 3, isDefault: false },
-          { name: "Bar", type: "class", loc: 10, isDefault: false },
-          { name: "x", type: "variable", loc: 1, isDefault: false },
+          { name: "foo", type: "function", loc: 3, isDefault: false, complexity: 1 },
+          { name: "Bar", type: "class", loc: 10, isDefault: false, complexity: 1 },
+          { name: "x", type: "variable", loc: 1, isDefault: false, complexity: 1 },
         ],
       }),
     ];
@@ -129,8 +131,8 @@ describe("buildGraph", () => {
     const files = [
       makeFile("src/a.ts", {
         exports: [
-          { name: "x", type: "function", loc: 3, isDefault: false },
-          { name: "y", type: "variable", loc: 1, isDefault: false },
+          { name: "x", type: "function", loc: 3, isDefault: false, complexity: 1 },
+          { name: "y", type: "variable", loc: 1, isDefault: false, complexity: 1 },
         ],
       }),
     ];
@@ -196,11 +198,11 @@ describe("detectCircularDeps", () => {
   it("ignores function nodes (only detects file-level cycles)", () => {
     const files = [
       makeFile("a.ts", {
-        exports: [{ name: "foo", type: "function", loc: 3, isDefault: false }],
+        exports: [{ name: "foo", type: "function", loc: 3, isDefault: false, complexity: 1 }],
         imports: [{ from: "./b", resolvedFrom: "b.ts", symbols: ["bar"], isTypeOnly: false }],
       }),
       makeFile("b.ts", {
-        exports: [{ name: "bar", type: "function", loc: 3, isDefault: false }],
+        exports: [{ name: "bar", type: "function", loc: 3, isDefault: false, complexity: 1 }],
       }),
     ];
     const { graph } = buildGraph(files);

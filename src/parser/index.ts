@@ -1,6 +1,7 @@
 import ts from "typescript";
 import path from "path";
 import fs from "fs";
+import { execFileSync } from "child_process";
 import type { ParsedFile, ParsedExport, ParsedImport } from "../types/index.js";
 
 export function parseCodebase(rootDir: string): ParsedFile[] {
@@ -39,7 +40,12 @@ export function parseCodebase(rootDir: string): ParsedFile[] {
     }
   }
 
-  return resolveImportPaths(parsed, absoluteRoot);
+  const resolved = resolveImportPaths(parsed, absoluteRoot);
+  const churnMap = getGitChurn(absoluteRoot);
+  return matchTestFiles(resolved).map((f) => ({
+    ...f,
+    churn: churnMap.get(f.relativePath) ?? 0,
+  }));
 }
 
 function findTypeScriptFiles(dir: string): string[] {
@@ -89,7 +95,7 @@ function parseFile(sourceFile: ts.SourceFile, checker: ts.TypeChecker, rootDir: 
   const exports = extractExports(sourceFile, checker);
   const imports = extractImports(sourceFile);
 
-  return { path: filePath, relativePath, loc, exports, imports };
+  return { path: filePath, relativePath, loc, exports, imports, churn: 0, isTestFile: false };
 }
 
 function extractExports(sourceFile: ts.SourceFile, checker: ts.TypeChecker): ParsedExport[] {
@@ -115,6 +121,7 @@ function extractExports(sourceFile: ts.SourceFile, checker: ts.TypeChecker): Par
       type: exportType,
       loc: endLine - startLine + 1,
       isDefault: exportName === "default",
+      complexity: computeComplexity(decl),
     });
   });
 
@@ -184,6 +191,124 @@ function resolveImportPaths(files: ParsedFile[], rootDir: string): ParsedFile[] 
       const dir = path.dirname(file.path);
       const resolved = resolveModulePath(dir, imp.from, filePathSet);
       imp.resolvedFrom = resolved ? path.relative(rootDir, resolved) : imp.from;
+    }
+  }
+
+  return files;
+}
+
+function computeComplexity(node: ts.Node): number {
+  let branches = 1;
+  function visit(n: ts.Node): void {
+    if (
+      ts.isIfStatement(n) ||
+      ts.isConditionalExpression(n) ||
+      ts.isCaseClause(n) ||
+      ts.isCatchClause(n) ||
+      ts.isForStatement(n) ||
+      ts.isForInStatement(n) ||
+      ts.isForOfStatement(n) ||
+      ts.isWhileStatement(n) ||
+      ts.isDoStatement(n)
+    ) {
+      branches++;
+    }
+    if (ts.isBinaryExpression(n)) {
+      if (n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+          n.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+          n.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+        branches++;
+      }
+    }
+    ts.forEachChild(n, visit);
+  }
+  ts.forEachChild(node, visit);
+  return branches;
+}
+
+function getGitChurn(rootDir: string): Map<string, number> {
+  const churnMap = new Map<string, number>();
+  try {
+    const output = execFileSync(
+      "git",
+      ["log", "--all", "--name-only", "--format="],
+      { cwd: rootDir, encoding: "utf-8", timeout: 30000, maxBuffer: 50 * 1024 * 1024 }
+    );
+    for (const line of output.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed && (trimmed.endsWith(".ts") || trimmed.endsWith(".tsx"))) {
+        churnMap.set(trimmed, (churnMap.get(trimmed) ?? 0) + 1);
+      }
+    }
+  } catch {
+    /* not a git repo or git unavailable — churn stays 0 */
+  }
+  return churnMap;
+}
+
+function matchTestFiles(files: ParsedFile[]): ParsedFile[] {
+  const byRelative = new Map<string, ParsedFile>();
+  for (const f of files) {
+    byRelative.set(f.relativePath, f);
+  }
+
+  // Build map: directory -> test files in its tests/ or __tests__/ subdirectory
+  const dirTestFiles = new Map<string, string[]>();
+  for (const f of files) {
+    const base = f.relativePath;
+    if (!base.includes(".test.") && !base.includes(".spec.")) continue;
+    const dir = path.dirname(base);
+    const dirName = path.basename(dir);
+    if (dirName === "tests" || dirName === "__tests__") {
+      const parentDir = path.dirname(dir);
+      const list = dirTestFiles.get(parentDir) ?? [];
+      list.push(base);
+      dirTestFiles.set(parentDir, list);
+    }
+  }
+
+  for (const f of files) {
+    const base = f.relativePath;
+    const isTest =
+      base.includes(".test.") ||
+      base.includes(".spec.") ||
+      base.includes("__tests__/");
+    f.isTestFile = isTest;
+
+    if (!isTest) {
+      const ext = path.extname(base);
+      const stem = base.slice(0, -ext.length);
+      const dir = path.dirname(base);
+      const name = path.basename(stem);
+
+      // Direct name-match candidates (same dir, __tests__/, tests/)
+      const testCandidates = [
+        `${stem}.test${ext}`,
+        `${stem}.spec${ext}`,
+        `${stem}.test.ts`,
+        `${stem}.spec.ts`,
+        path.join(dir, "__tests__", `${name}${ext}`),
+        path.join(dir, "__tests__", `${name}.test${ext}`),
+        path.join(dir, "tests", `${name}.test${ext}`),
+        path.join(dir, "tests", `${name}.spec${ext}`),
+        path.join(dir, "tests", `${name}.test.ts`),
+        path.join(dir, "tests", `${name}.spec.ts`),
+      ];
+
+      for (const candidate of testCandidates) {
+        if (byRelative.has(candidate)) {
+          f.testFile = candidate;
+          break;
+        }
+      }
+
+      // Fallback: module-level test directory (tests/ or __tests__/ has any test files)
+      if (!f.testFile) {
+        const testFiles = dirTestFiles.get(dir);
+        if (testFiles && testFiles.length > 0) {
+          f.testFile = testFiles[0];
+        }
+      }
     }
   }
 

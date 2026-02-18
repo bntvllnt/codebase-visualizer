@@ -20,6 +20,7 @@
       padding: 2px 0; color: #888; font-size: 11px;
     }
     .stats-row span { color: #e0e0e0; font-weight: 500; }
+    .stats-divider { height: 1px; background: #333; margin: 6px 0; }
 
     /* View switcher — center top */
     #view-bar {
@@ -139,6 +140,12 @@
     <div class="stats-row">Functions <span id="stat-functions">—</span></div>
     <div class="stats-row">Dependencies <span id="stat-deps">—</span></div>
     <div class="stats-row">Circular <span id="stat-circular">—</span></div>
+    <div class="stats-divider"></div>
+    <div class="stats-row">Test Coverage <span id="stat-coverage">—</span></div>
+    <div class="stats-row">Dead Exports <span id="stat-dead">—</span></div>
+    <div class="stats-row">Avg Complexity <span id="stat-complexity">—</span></div>
+    <div class="stats-row">Tension Files <span id="stat-tension">—</span></div>
+    <div class="stats-row">Bridges <span id="stat-bridges">—</span></div>
   </div>
   <div id="view-bar">
     <div class="view-tab active" data-view="galaxy">Galaxy</div>
@@ -147,6 +154,8 @@
     <div class="view-tab" data-view="focus">Focus</div>
     <div class="view-tab" data-view="module">Module</div>
     <div class="view-tab" data-view="forces">Forces</div>
+    <div class="view-tab" data-view="churn">Churn</div>
+    <div class="view-tab" data-view="coverage">Coverage</div>
   </div>
   <input id="search" type="text" placeholder="Search files..." />
   <div id="graph"></div>
@@ -381,6 +390,14 @@
       return `rgb(${r},${g},60)`;
     }
 
+    // Human-readable complexity rating
+    function complexityLabel(val) {
+      if (val <= 5) return { text: 'Simple', color: '#16a34a' };
+      if (val <= 10) return { text: 'Moderate', color: '#ca8a04' };
+      if (val <= 20) return { text: 'Complex', color: '#ea580c' };
+      return { text: 'Very Complex', color: '#dc2626' };
+    }
+
     async function fetchData(retries) {
       for (let i = 0; i <= retries; i++) {
         try {
@@ -432,6 +449,27 @@
       document.getElementById('stat-functions').textContent = String(graphData.stats.totalFunctions);
       document.getElementById('stat-deps').textContent = String(graphData.stats.totalDependencies);
       document.getElementById('stat-circular').textContent = String(graphData.stats.circularDeps.length);
+
+      // Computed analytics stats
+      const fileNodes = graphData.nodes.filter(n => n.type === 'file');
+      const testedCount = fileNodes.filter(n => n.hasTests).length;
+      const totalFiles = fileNodes.length || 1;
+      const coveragePct = Math.round((testedCount / totalFiles) * 100);
+      const coverageSpan = document.getElementById('stat-coverage');
+      coverageSpan.textContent = testedCount + '/' + totalFiles + ' (' + coveragePct + '%)';
+      coverageSpan.style.color = coveragePct >= 60 ? '#16a34a' : coveragePct >= 30 ? '#ca8a04' : '#dc2626';
+
+      const totalDead = fileNodes.reduce((sum, n) => sum + (n.deadExports ? n.deadExports.length : 0), 0);
+      document.getElementById('stat-dead').textContent = String(totalDead);
+
+      const avgComplexity = fileNodes.reduce((sum, n) => sum + (n.cyclomaticComplexity || 1), 0) / totalFiles;
+      const cxLabel = complexityLabel(avgComplexity);
+      const cxSpan = document.getElementById('stat-complexity');
+      cxSpan.textContent = avgComplexity.toFixed(1) + ' — ' + cxLabel.text;
+      cxSpan.style.color = cxLabel.color;
+
+      document.getElementById('stat-tension').textContent = String(forceData.tensionFiles.length);
+      document.getElementById('stat-bridges').textContent = String(forceData.bridgeFiles.length);
 
       // Wait for browser to compute layout (container needs real dimensions for WebGL canvas)
       await waitForLayout();
@@ -699,6 +737,71 @@
       updateLegend('forces');
     }
 
+    function renderChurn() {
+      currentView = 'churn';
+      const container = document.getElementById('graph');
+      container.innerHTML = '';
+
+      const maxChurn = Math.max(1, ...graphData.nodes.map(n => n.churn || 0));
+
+      const data = {
+        nodes: graphData.nodes.map(n => {
+          const score = (n.churn || 0) / maxChurn;
+          return { ...n, color: nodeColor(n, healthColor(score)), size: nodeSize(n, 2 + (n.churn || 0) / maxChurn * 6) };
+        }),
+        links: graphData.edges.map(e => ({
+          source: e.source, target: e.target,
+          color: linkRgba(0.4),
+        }))
+      };
+
+      graph3d = ForceGraph3D()(container)
+        .graphData(data)
+        .nodeLabel(n => `${n.path} (${n.churn || 0} commits)`)
+        .nodeColor(n => n.color)
+        .nodeVal(n => n.size)
+        .nodeOpacity(cfg.nodeOpacity)
+        .linkColor(l => l.color)
+        .linkWidth(cfg.linkWidth)
+        .backgroundColor('#0a0a0f')
+        .onNodeClick(n => showDetail(n));
+
+      applyForces();
+      updateLegend('churn');
+    }
+
+    function renderCoverage() {
+      currentView = 'coverage';
+      const container = document.getElementById('graph');
+      container.innerHTML = '';
+
+      const data = {
+        nodes: graphData.nodes.map(n => {
+          const tested = n.hasTests;
+          const base = tested ? '#16a34a' : '#dc2626';
+          return { ...n, color: nodeColor(n, base), size: nodeSize(n, 2 + Math.sqrt(n.pageRank * 10000)) };
+        }),
+        links: graphData.edges.map(e => ({
+          source: e.source, target: e.target,
+          color: linkRgba(0.4),
+        }))
+      };
+
+      graph3d = ForceGraph3D()(container)
+        .graphData(data)
+        .nodeLabel(n => `${n.path} ${n.hasTests ? '(tested)' : '(untested)'}`)
+        .nodeColor(n => n.color)
+        .nodeVal(n => n.size)
+        .nodeOpacity(cfg.nodeOpacity)
+        .linkColor(l => l.color)
+        .linkWidth(cfg.linkWidth)
+        .backgroundColor('#0a0a0f')
+        .onNodeClick(n => showDetail(n));
+
+      applyForces();
+      updateLegend('coverage');
+    }
+
     function applyForces() {
       if (!graph3d) return;
       const charge = graph3d.d3Force('charge');
@@ -719,6 +822,8 @@
         case 'focus': renderFocus(focusNode || graphData.nodes[0]?.id); break;
         case 'module': renderModule(); break;
         case 'forces': renderForces(); break;
+        case 'churn': renderChurn(); break;
+        case 'coverage': renderCoverage(); break;
       }
     }
 
@@ -753,6 +858,19 @@
       content.appendChild(metric('Fan Out', node.fanOut || 0));
       content.appendChild(metric('Tension', (node.tension || 0).toFixed(2)));
       content.appendChild(metric('Bridge', node.isBridge ? 'Yes' : 'No'));
+      content.appendChild(metric('Churn', (node.churn || 0) + ' commits'));
+      const nodeCx = complexityLabel(node.cyclomaticComplexity || 1);
+      const cxMetric = metric('Complexity', (node.cyclomaticComplexity || 1).toFixed(1) + ' — ' + nodeCx.text);
+      cxMetric.querySelector('.metric-value').style.color = nodeCx.color;
+      content.appendChild(cxMetric);
+      content.appendChild(metric('Blast Radius', node.blastRadius || 0));
+      content.appendChild(metric('Tests', node.hasTests ? (node.testFile || 'Yes') : 'None'));
+      if (node.deadExports && node.deadExports.length > 0) {
+        content.appendChild(el('div', { className: 'section-title' }, 'Dead Exports (' + node.deadExports.length + ')'));
+        const deadList = el('div', { className: 'dep-list' });
+        node.deadExports.forEach(name => deadList.appendChild(el('div', { style: { color: '#ef4444' } }, name)));
+        content.appendChild(deadList);
+      }
 
       if (node.functions && node.functions.length > 0) {
         content.appendChild(el('div', { className: 'section-title' }, 'Exports (' + node.functions.length + ')'));
@@ -807,6 +925,8 @@
         focus: '<div class="item"><span style="color:#fbbf24">Yellow = selected</span> | Bright = neighbors | Faded = distant | Click to shift focus</div>',
         module: '<div class="item"><span>Color = module | <span style="color:#fbbf24">Yellow edges = cross-module deps</span></span></div>',
         forces: '<div class="item"><span style="color:#fbbf24">Yellow = tension</span> | <span style="color:#06b6d4">Cyan = bridge</span> | <span style="color:#ef4444">Red = junk drawer</span> | <span style="color:#22c55e">Green = extraction candidate</span></div>',
+        churn: '<div class="item"><span style="color:#16a34a">Green = stable</span> | <span style="color:#ea580c">Orange = moderate churn</span> | <span style="color:#dc2626">Red = high churn</span> | Size = commit frequency</div>',
+        coverage: '<div class="item"><span style="color:#16a34a">Green = has tests</span> | <span style="color:#dc2626">Red = untested</span> | Size = importance (PageRank)</div>',
       };
       legend.innerHTML = legends[view] || '';
     }
@@ -885,6 +1005,8 @@
             case 'focus': renderFocus(focusNode || graphData.nodes[0]?.id); break;
             case 'module': renderModule(); break;
             case 'forces': renderForces(); break;
+            case 'churn': renderChurn(); break;
+            case 'coverage': renderCoverage(); break;
           }
         });
       });

@@ -10,6 +10,8 @@ function makeFile(relativePath: string, overrides?: Partial<ParsedFile>): Parsed
     loc: 10,
     exports: [],
     imports: [],
+    churn: 0,
+    isTestFile: false,
     ...overrides,
   };
 }
@@ -21,7 +23,7 @@ function imp(resolvedFrom: string, symbols: string[] = ["x"], isTypeOnly = false
 describe("analyzeGraph", () => {
   it("returns correct stats for a simple graph", () => {
     const files = [
-      makeFile("a.ts", { exports: [{ name: "foo", type: "function", loc: 5, isDefault: false }] }),
+      makeFile("a.ts", { exports: [{ name: "foo", type: "function", loc: 5, isDefault: false, complexity: 1 }] }),
       makeFile("b.ts"),
     ];
     const built = buildGraph(files);

@@ -14,6 +14,8 @@ function makeFile(relativePath: string, overrides?: Partial<ParsedFile>): Parsed
     loc: 10,
     exports: [],
     imports: [],
+    churn: 0,
+    isTestFile: false,
     ...overrides,
   };
 }
@@ -31,21 +33,21 @@ beforeAll(() => {
     makeFile("src/core/utils.ts", {
       loc: 50,
       exports: [
-        { name: "add", type: "function", loc: 5, isDefault: false },
-        { name: "subtract", type: "function", loc: 5, isDefault: false },
+        { name: "add", type: "function", loc: 5, isDefault: false, complexity: 1 },
+        { name: "subtract", type: "function", loc: 5, isDefault: false, complexity: 1 },
       ],
       imports: [],
     }),
     makeFile("src/core/types.ts", {
       loc: 30,
       exports: [
-        { name: "Config", type: "interface", loc: 8, isDefault: false },
+        { name: "Config", type: "interface", loc: 8, isDefault: false, complexity: 1 },
       ],
     }),
     makeFile("src/api/handler.ts", {
       loc: 80,
       exports: [
-        { name: "handleRequest", type: "function", loc: 20, isDefault: false },
+        { name: "handleRequest", type: "function", loc: 20, isDefault: false, complexity: 1 },
       ],
       imports: [
         imp("src/core/utils.ts", ["add", "subtract"]),
@@ -55,7 +57,7 @@ beforeAll(() => {
     makeFile("src/api/router.ts", {
       loc: 40,
       exports: [
-        { name: "createRouter", type: "function", loc: 10, isDefault: false },
+        { name: "createRouter", type: "function", loc: 10, isDefault: false, complexity: 1 },
       ],
       imports: [imp("src/api/handler.ts", ["handleRequest"])],
     }),

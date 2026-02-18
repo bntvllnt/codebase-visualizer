@@ -4,6 +4,9 @@ export interface ParsedFile {
   loc: number;
   exports: ParsedExport[];
   imports: ParsedImport[];
+  churn: number;
+  isTestFile: boolean;
+  testFile?: string;
 }
 
 export interface ParsedExport {
@@ -11,6 +14,7 @@ export interface ParsedExport {
   type: "function" | "class" | "variable" | "type" | "interface" | "enum";
   loc: number;
   isDefault: boolean;
+  complexity: number;
 }
 
 export interface ParsedImport {
@@ -46,6 +50,12 @@ export interface FileMetrics {
   coupling: number;
   tension: number;
   isBridge: boolean;
+  churn: number;
+  cyclomaticComplexity: number;
+  blastRadius: number;
+  deadExports: string[];
+  hasTests: boolean;
+  testFile: string;
 }
 
 export interface ModuleMetrics {

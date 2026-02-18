@@ -94,9 +94,52 @@ All four must pass before shipping. Run in order: lint -> typecheck -> build -> 
 - Circular dep detection uses iterative DFS (not recursive) to avoid stack overflow
 - MCP tool handlers must be async (SDK requirement) even if they don't await
 
-## Testing
+## Testing (BLOCKING)
 
 - Test runner: vitest
 - Test files: `src/**/*.test.ts`
 - Run: `npm test` or `npx vitest run`
-- Focus on parser accuracy and analyzer metric correctness
+
+### Coverage Policy (ENFORCE)
+
+- Every new function, endpoint, or behavior MUST have tests
+- Every bug fix MUST include a regression test
+- Target: maximum coverage — if code exists, it should be tested
+- No feature or fix ships without corresponding tests
+
+### Real Environment Tests (MANDATORY)
+
+- **NEVER mock internal modules** — use real parser, real graph, real analyzer
+- **NEVER mock Express** — use `supertest` against the real app
+- **NEVER mock graphology** — build real graphs with real data
+- **NEVER mock filesystem for parser tests** — use real fixture directories with real `.ts` files
+- **Only mock external third-party APIs** that require network/auth (none currently)
+- Integration tests > unit tests. Test the pipeline, not isolated functions.
+
+### Test Patterns
+
+| Layer | Test Approach |
+|-------|--------------|
+| Parser | Real `.ts` fixture files on disk, assert parsed output |
+| Graph | Real parsed files -> real graph builder, assert nodes/edges |
+| Analyzer | Real graph -> real metrics, assert values |
+| API | `supertest` against real Express app with real graph data |
+| MCP | Real MCP server instance, assert tool responses |
+| CLI | Real process execution where feasible |
+
+### Visual Verification (MANDATORY for UI changes)
+
+- After ANY UI change (HTML/CSS/client JS), start the server and verify in a browser
+- Start server: `node dist/cli.js ./src --port 3333`
+- Verify: page loads, graph renders, changed feature works visually
+- Check browser console for JavaScript errors
+- Kill server after verification
+- If browser agent is available, use it for automated visual verification
+
+### Anti-Patterns (NEVER)
+
+- NEVER use `jest.mock()` or `vi.mock()` for internal modules
+- NEVER create fake/stub graph objects — build them through the real pipeline
+- NEVER skip tests because "it's just UI" or "it's just config"
+- NEVER write tests that pass regardless of implementation (test behavior, not existence)
+- NEVER ship UI changes without visual verification in a real browser

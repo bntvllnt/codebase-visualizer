@@ -10,6 +10,8 @@ process.on("unhandledRejection", (err) => {
   process.exit(1);
 });
 
+import fs from "fs";
+import path from "path";
 import { Command } from "commander";
 import { parseCodebase } from "./parser/index.js";
 import { buildGraph } from "./graph/index.js";
@@ -54,7 +56,12 @@ program
       } else {
         // Browser mode — web server
         const port = parseInt(options.port, 10);
-        await startServer(codebaseGraph, port);
+        let projectName = path.basename(path.resolve(targetPath));
+        try {
+          const pkg = JSON.parse(fs.readFileSync(path.resolve(targetPath, "package.json"), "utf-8")) as { name?: string };
+          if (pkg.name) projectName = pkg.name;
+        } catch { /* no package.json — use directory name */ }
+        await startServer(codebaseGraph, port, projectName);
       }
     } catch (error) {
       if (error instanceof Error) {

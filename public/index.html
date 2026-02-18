@@ -6,19 +6,40 @@
   <title>Codebase Visualizer</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #0a0a0f; color: #e0e0e0; font-family: 'Inter', -apple-system, sans-serif; overflow: hidden; }
+    body { background: #0a0a0f; color: #e0e0e0; font-family: 'Inter', -apple-system, sans-serif; overflow: hidden; user-select: none; }
 
-    /* Header */
-    #header {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-      display: flex; align-items: center; gap: 12px;
-      padding: 8px 16px; background: rgba(10,10,15,0.9); border-bottom: 1px solid #222;
+    /* Project title — top left */
+    #project-bar {
+      position: fixed; top: 12px; left: 16px; z-index: 100;
+      padding: 6px 14px; background: rgba(10,10,15,0.85); border: 1px solid #222;
+      border-radius: 10px; backdrop-filter: blur(12px);
     }
-    #header h1 { font-size: 14px; font-weight: 600; color: #fff; white-space: nowrap; }
-    #stats { font-size: 12px; color: #888; }
+    #project-bar h1 { font-size: 14px; font-weight: 600; color: #fff; white-space: nowrap; }
 
-    /* View selector */
-    .view-tabs { display: flex; gap: 4px; margin-left: 16px; }
+    /* Stats panel — below project title */
+    #stats-panel {
+      position: fixed; top: 46px; left: 16px; z-index: 100;
+      padding: 10px 14px; background: rgba(10,10,15,0.85); border: 1px solid #222;
+      border-radius: 10px; backdrop-filter: blur(12px);
+      font-size: 11px;
+    }
+    .stats-title {
+      font-size: 10px; color: #2563eb; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 6px;
+    }
+    .stats-row {
+      display: flex; justify-content: space-between; gap: 16px;
+      padding: 2px 0; color: #888;
+    }
+    .stats-row span { color: #e0e0e0; font-weight: 500; }
+
+    /* View switcher — center top */
+    #view-bar {
+      position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 100;
+      display: flex; align-items: center; gap: 4px;
+      padding: 6px 10px; background: rgba(10,10,15,0.85); border: 1px solid #222;
+      border-radius: 10px; backdrop-filter: blur(12px);
+    }
     .view-tab {
       padding: 4px 10px; font-size: 11px; border-radius: 4px;
       background: #1a1a24; color: #888; border: 1px solid #333;
@@ -27,11 +48,13 @@
     .view-tab:hover { background: #252530; color: #ccc; }
     .view-tab.active { background: #2563eb; color: #fff; border-color: #2563eb; }
 
-    /* Search */
+    /* Search — top right floating */
     #search {
-      margin-left: auto; padding: 4px 10px; font-size: 12px;
-      background: #1a1a24; color: #e0e0e0; border: 1px solid #333;
-      border-radius: 4px; outline: none; width: 200px;
+      position: fixed; top: 12px; right: 16px; z-index: 100;
+      padding: 6px 12px; font-size: 12px;
+      background: rgba(10,10,15,0.85); color: #e0e0e0; border: 1px solid #222;
+      border-radius: 10px; outline: none; width: 180px;
+      backdrop-filter: blur(12px);
     }
     #search:focus { border-color: #2563eb; }
 
@@ -40,7 +63,8 @@
 
     /* Detail panel */
     #detail {
-      position: fixed; top: 48px; right: 0; width: 320px; max-height: calc(100vh - 48px);
+      position: fixed; top: 84px; right: 12px; width: 320px; max-height: calc(100vh - 96px);
+      border-radius: 10px;
       background: rgba(15,15,25,0.95); border-left: 1px solid #222;
       padding: 16px; overflow-y: auto; display: none; z-index: 50;
     }
@@ -61,8 +85,8 @@
     /* Legend */
     #legend {
       position: fixed; bottom: 16px; left: 16px; z-index: 50;
-      background: rgba(15,15,25,0.9); border: 1px solid #222; border-radius: 6px;
-      padding: 10px 14px; font-size: 11px;
+      background: rgba(15,15,25,0.85); border: 1px solid #222; border-radius: 10px;
+      padding: 10px 14px; font-size: 11px; backdrop-filter: blur(12px);
     }
     #legend .item { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
     #legend .dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -84,11 +108,11 @@
 
     #config-panel {
       position: fixed; bottom: 60px; right: 16px; z-index: 100;
-      width: 240px; background: rgba(15,15,25,0.95);
-      border: 1px solid #222; border-radius: 8px;
-      padding: 16px; display: none; backdrop-filter: blur(10px);
+      width: 240px; background: rgba(15,15,25,0.85);
+      border: 1px solid #222; border-radius: 10px;
+      padding: 16px; display: block; backdrop-filter: blur(12px);
     }
-    #config-panel.visible { display: block; }
+    #config-panel.hidden { display: none; }
 
     .config-title {
       font-size: 12px; font-weight: 600; color: #fff;
@@ -126,22 +150,34 @@
       font-size: 11px; color: #888; margin-bottom: 8px;
     }
     .config-color-row span { color: #e0e0e0; }
+    .config-check {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; color: #888; margin-bottom: 8px; cursor: pointer;
+    }
+    .config-check input { accent-color: #2563eb; cursor: pointer; }
+    .config-check span { color: #e0e0e0; }
   </style>
 </head>
 <body>
-  <div id="header">
-    <h1>Codebase Visualizer</h1>
-    <span id="stats"></span>
-    <div class="view-tabs">
-      <div class="view-tab active" data-view="galaxy">Galaxy</div>
-      <div class="view-tab" data-view="depflow">Dep Flow</div>
-      <div class="view-tab" data-view="hotspot">Hotspot</div>
-      <div class="view-tab" data-view="focus">Focus</div>
-      <div class="view-tab" data-view="module">Module</div>
-      <div class="view-tab" data-view="forces">Forces</div>
-    </div>
-    <input id="search" type="text" placeholder="Search files..." />
+  <div id="project-bar">
+    <h1 id="project-title">Codebase Visualizer</h1>
   </div>
+  <div id="stats-panel">
+    <div class="stats-title">Stats</div>
+    <div class="stats-row">Files <span id="stat-files">—</span></div>
+    <div class="stats-row">Functions <span id="stat-functions">—</span></div>
+    <div class="stats-row">Dependencies <span id="stat-deps">—</span></div>
+    <div class="stats-row">Circular <span id="stat-circular">—</span></div>
+  </div>
+  <div id="view-bar">
+    <div class="view-tab active" data-view="galaxy">Galaxy</div>
+    <div class="view-tab" data-view="depflow">Dep Flow</div>
+    <div class="view-tab" data-view="hotspot">Hotspot</div>
+    <div class="view-tab" data-view="focus">Focus</div>
+    <div class="view-tab" data-view="module">Module</div>
+    <div class="view-tab" data-view="forces">Forces</div>
+  </div>
+  <input id="search" type="text" placeholder="Search files..." />
   <div id="graph"></div>
   <div id="detail">
     <button class="close-btn" id="close-detail-btn">&times;</button>
@@ -178,6 +214,12 @@
       <label>Width <span id="val-linkWidth">0.3</span></label>
       <input type="range" id="cfg-linkWidth" min="0.1" max="3" step="0.1" value="0.3">
     </div>
+    <div class="config-section">Grouping</div>
+    <label class="config-check"><input type="checkbox" id="cfg-moduleBoxes" checked> <span>Module Boxes</span></label>
+    <div class="config-group">
+      <label>Box Opacity <span id="val-boxOpacity">0.25</span></label>
+      <input type="range" id="cfg-boxOpacity" min="0.05" max="0.8" step="0.05" value="0.25">
+    </div>
     <div class="config-section">Physics</div>
     <div class="config-group">
       <label>Repulsion <span id="val-charge">-30</span></label>
@@ -189,6 +231,7 @@
     </div>
   </div>
 
+  <script src="https://unpkg.com/three@0.170.0/build/three.min.js"></script>
   <script src="https://unpkg.com/3d-force-graph@1"></script>
   <script>
     let graphData = null;
@@ -249,7 +292,85 @@
       linkWidth: 0.3,
       charge: -30,
       distance: 120,
+      showModuleBoxes: true,
+      boxOpacity: 0.25,
     };
+
+    // Module bounding boxes (Three.js wireframe cubes)
+    const moduleBoxes = new Map();
+
+    function clearModuleBoxes() {
+      moduleBoxes.forEach(obj => {
+        obj.lines.geometry.dispose();
+        obj.lines.material.dispose();
+        if (graph3d) graph3d.scene().remove(obj.lines);
+      });
+      moduleBoxes.clear();
+    }
+
+    function updateModuleBoxes() {
+      if (!graph3d || typeof THREE === 'undefined') return;
+      if (!cfg.showModuleBoxes) { clearModuleBoxes(); return; }
+
+      const scene = graph3d.scene();
+      const nodes = graph3d.graphData().nodes;
+
+      const groups = new Map();
+      nodes.forEach(n => {
+        if (n.x === undefined) return;
+        if (!groups.has(n.module)) groups.set(n.module, []);
+        groups.get(n.module).push(n);
+      });
+
+      const active = new Set();
+      groups.forEach((moduleNodes, mod) => {
+        if (moduleNodes.length < 2) return;
+        active.add(mod);
+
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+        moduleNodes.forEach(n => {
+          minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x);
+          minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y);
+          minZ = Math.min(minZ, n.z); maxZ = Math.max(maxZ, n.z);
+        });
+
+        const pad = 15;
+        const sx = Math.max((maxX - minX) + pad * 2, pad);
+        const sy = Math.max((maxY - minY) + pad * 2, pad);
+        const sz = Math.max((maxZ - minZ) + pad * 2, pad);
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        const cz = (minZ + maxZ) / 2;
+
+        const existing = moduleBoxes.get(mod);
+        if (existing) {
+          existing.lines.position.set(cx, cy, cz);
+          existing.lines.scale.set(sx, sy, sz);
+          existing.lines.material.opacity = cfg.boxOpacity;
+        } else {
+          const color = getModuleColor(mod);
+          const geo = new THREE.BoxGeometry(1, 1, 1);
+          const edges = new THREE.EdgesGeometry(geo);
+          const mat = new THREE.LineBasicMaterial({ color, opacity: cfg.boxOpacity, transparent: true });
+          const lines = new THREE.LineSegments(edges, mat);
+          lines.position.set(cx, cy, cz);
+          lines.scale.set(sx, sy, sz);
+          scene.add(lines);
+          geo.dispose();
+          moduleBoxes.set(mod, { lines });
+        }
+      });
+
+      moduleBoxes.forEach((obj, mod) => {
+        if (!active.has(mod)) {
+          obj.lines.geometry.dispose();
+          obj.lines.material.dispose();
+          scene.remove(obj.lines);
+          moduleBoxes.delete(mod);
+        }
+      });
+    }
 
     function linkRgba(alpha) {
       const h = cfg.linkColor;
@@ -290,34 +411,72 @@
       return `rgb(${r},${g},60)`;
     }
 
-    async function init() {
-      try {
-        const [graphRes, forcesRes] = await Promise.all([
-          fetch('/api/graph'),
-          fetch('/api/forces')
-        ]);
-        if (!graphRes.ok || !forcesRes.ok) throw new Error('Server returned error');
-        graphData = await graphRes.json();
-        forceData = await forcesRes.json();
-      } catch (err) {
-        document.getElementById('graph').innerHTML = '';
-        document.getElementById('graph').appendChild(
-          el('div', { style: { color: '#ef4444', padding: '40px', textAlign: 'center', fontSize: '16px' } },
-            'Failed to load graph data: ' + (err instanceof Error ? err.message : String(err))
-          )
-        );
-        return;
+    async function fetchData(retries) {
+      for (let i = 0; i <= retries; i++) {
+        try {
+          const [graphRes, forcesRes, metaRes] = await Promise.all([
+            fetch('/api/graph'),
+            fetch('/api/forces'),
+            fetch('/api/meta')
+          ]);
+          if (!graphRes.ok || !forcesRes.ok) throw new Error('Server returned error');
+          graphData = await graphRes.json();
+          forceData = await forcesRes.json();
+          if (metaRes.ok) {
+            const meta = await metaRes.json();
+            document.getElementById('project-title').textContent = meta.projectName;
+            document.title = meta.projectName + ' — Codebase Visualizer';
+          }
+          return true;
+        } catch (err) {
+          if (i < retries) {
+            await new Promise(r => setTimeout(r, 500 * (i + 1)));
+          } else {
+            document.getElementById('graph').innerHTML = '';
+            document.getElementById('graph').appendChild(
+              el('div', { style: { color: '#ef4444', padding: '40px', textAlign: 'center', fontSize: '16px' } },
+                'Failed to load graph data: ' + (err instanceof Error ? err.message : String(err))
+              )
+            );
+            return false;
+          }
+        }
       }
+      return false;
+    }
+
+    function waitForLayout() {
+      return new Promise(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      });
+    }
+
+    async function init() {
+      const ok = await fetchData(3);
+      if (!ok) return;
 
       // Build O(1) lookup map
       nodeById = new Map(graphData.nodes.map(n => [n.id, n]));
 
-      document.getElementById('stats').textContent =
-        `${graphData.stats.totalFiles} files | ${graphData.stats.totalFunctions} functions | ${graphData.stats.totalDependencies} deps | ${graphData.stats.circularDeps.length} circular`;
+      document.getElementById('stat-files').textContent = String(graphData.stats.totalFiles);
+      document.getElementById('stat-functions').textContent = String(graphData.stats.totalFunctions);
+      document.getElementById('stat-deps').textContent = String(graphData.stats.totalDependencies);
+      document.getElementById('stat-circular').textContent = String(graphData.stats.circularDeps.length);
+
+      // Wait for browser to compute layout (container needs real dimensions for WebGL canvas)
+      await waitForLayout();
 
       renderGalaxy();
       setupEvents();
       setupConfig();
+
+      // Safety net: if container got zero-sized, re-render on resize
+      window.addEventListener('resize', () => {
+        if (graph3d) {
+          const c = document.getElementById('graph');
+          graph3d.width(c.clientWidth).height(c.clientHeight);
+        }
+      });
     }
 
     function renderGalaxy() {
@@ -577,9 +736,12 @@
       const link = graph3d.d3Force('link');
       if (link) link.distance(cfg.distance);
       graph3d.d3ReheatSimulation();
+      // Attach module box updates to simulation ticks
+      graph3d.onEngineTick(updateModuleBoxes);
     }
 
     function rerender() {
+      moduleBoxes.clear();
       switch (currentView) {
         case 'galaxy': renderGalaxy(); break;
         case 'depflow': renderDepFlow(); break;
@@ -720,8 +882,9 @@
       const toggle = document.getElementById('config-toggle');
       const panel = document.getElementById('config-panel');
 
+      toggle.classList.add('active');
       toggle.addEventListener('click', () => {
-        panel.classList.toggle('visible');
+        panel.classList.toggle('hidden');
         toggle.classList.toggle('active');
       });
 
@@ -767,9 +930,29 @@
         cfg.linkColor = e.target.value;
         scheduleRerender();
       });
+
+      // Module boxes toggle
+      document.getElementById('cfg-moduleBoxes').addEventListener('change', (e) => {
+        cfg.showModuleBoxes = e.target.checked;
+        if (!cfg.showModuleBoxes) clearModuleBoxes();
+        else updateModuleBoxes();
+      });
+
+      // Box opacity slider
+      const boxInput = document.getElementById('cfg-boxOpacity');
+      const boxDisplay = document.getElementById('val-boxOpacity');
+      boxInput.addEventListener('input', () => {
+        cfg.boxOpacity = parseFloat(boxInput.value);
+        boxDisplay.textContent = cfg.boxOpacity.toFixed(2);
+        moduleBoxes.forEach(obj => { obj.lines.material.opacity = cfg.boxOpacity; });
+      });
     }
 
-    init();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
 
     // Auto-reload: detect server restart
     (function() {

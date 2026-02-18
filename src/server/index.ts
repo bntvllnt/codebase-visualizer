@@ -7,11 +7,11 @@ import { createApiRoutes } from "./api.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export async function startServer(graph: CodebaseGraph, port: number): Promise<void> {
+export async function startServer(graph: CodebaseGraph, port: number, projectName?: string): Promise<void> {
   const app = express();
 
   // API routes
-  app.use("/api", createApiRoutes(graph));
+  app.use("/api", createApiRoutes(graph, projectName));
 
   // Serve static files (the 3D UI)
   const publicDir = path.resolve(__dirname, "../../public");

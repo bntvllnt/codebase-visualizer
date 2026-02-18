@@ -1,11 +1,16 @@
 import { Router, type Request, type Response } from "express";
 import type { CodebaseGraph } from "../types/index.js";
 
-export function createApiRoutes(graph: CodebaseGraph): Router {
+export function createApiRoutes(graph: CodebaseGraph, projectName?: string): Router {
   const router = Router();
 
   // Ping for live-reload detection
   router.get("/ping", (_req, res) => { res.json({ ok: true }); });
+
+  // Project metadata for UI title
+  router.get("/meta", (_req, res) => {
+    res.json({ projectName: projectName ?? "unknown" });
+  });
 
   // Full graph data for 3D renderer
   router.get("/graph", (_req, res) => {

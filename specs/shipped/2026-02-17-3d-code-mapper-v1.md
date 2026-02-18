@@ -1,6 +1,7 @@
 ---
 title: Codebase Visualizer V1
-status: active
+status: shipped
+shipped: 2026-02-18
 created: 2026-02-17
 estimate: 10h
 tier: standard
@@ -722,6 +723,12 @@ Is this primarily a **visualization tool** (humans look at pretty 3D graphs) or 
 
 ## Notes
 
+### Ship Retro (2026-02-18)
+**Estimate vs Actual:** 10h -> ~2h (500% faster)
+**What worked:** Greenfield build with clear spec — 19/19 scope items shipped in one iteration. Force analysis view and MCP tools were the differentiators. 75-test suite caught edge cases early.
+**What didn't:** Nothing major. Config panel + dev mode were unplanned additions (post-V1 polish).
+**Next time:** Include DX tooling (tsx watch, auto-reload) in initial scope — it accelerates iteration significantly.
+
 ## Progress
 
 | # | Scope Item | Status | Iteration |
@@ -751,3 +758,4 @@ Is this primarily a **visualization tool** (humans look at pretty 3D graphs) or 
 | Action | Timestamp | Duration | Notes |
 |--------|-----------|----------|-------|
 | plan | 2026-02-17T15:33:00Z | - | Created |
+| done | 2026-02-18T18:39:00Z | ~2h | All 19 scope items, 75 tests, config panel + DX extras |

@@ -70,6 +70,62 @@
     /* Force analysis legend */
     .force-legend { display: none; }
     .force-legend.visible { display: block; }
+
+    /* Config panel */
+    #config-toggle {
+      position: fixed; bottom: 16px; right: 16px; z-index: 100;
+      width: 36px; height: 36px; border-radius: 50%;
+      background: #1a1a24; border: 1px solid #333; color: #888;
+      font-size: 18px; cursor: pointer; transition: all 0.2s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #config-toggle:hover { background: #252530; color: #fff; border-color: #2563eb; }
+    #config-toggle.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+    #config-panel {
+      position: fixed; bottom: 60px; right: 16px; z-index: 100;
+      width: 240px; background: rgba(15,15,25,0.95);
+      border: 1px solid #222; border-radius: 8px;
+      padding: 16px; display: none; backdrop-filter: blur(10px);
+    }
+    #config-panel.visible { display: block; }
+
+    .config-title {
+      font-size: 12px; font-weight: 600; color: #fff;
+      margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .config-section {
+      font-size: 10px; color: #2563eb; text-transform: uppercase;
+      margin: 12px 0 6px; letter-spacing: 0.5px;
+    }
+    .config-section:first-of-type { margin-top: 0; }
+    .config-group { margin-bottom: 8px; }
+    .config-group label {
+      display: flex; justify-content: space-between;
+      font-size: 11px; color: #888; margin-bottom: 3px;
+    }
+    .config-group label span { color: #e0e0e0; font-weight: 500; min-width: 32px; text-align: right; }
+    .config-group input[type="range"] {
+      width: 100%; height: 4px; -webkit-appearance: none; appearance: none;
+      background: #333; border-radius: 2px; outline: none;
+    }
+    .config-group input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px;
+      border-radius: 50%; background: #2563eb; cursor: pointer;
+    }
+    .config-group input[type="range"]::-moz-range-thumb {
+      width: 14px; height: 14px; border: none;
+      border-radius: 50%; background: #2563eb; cursor: pointer;
+    }
+    .config-group input[type="color"] {
+      width: 32px; height: 20px; border: 1px solid #333; border-radius: 3px;
+      background: none; cursor: pointer; padding: 0;
+    }
+    .config-color-row {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 11px; color: #888; margin-bottom: 8px;
+    }
+    .config-color-row span { color: #e0e0e0; }
   </style>
 </head>
 <body>
@@ -92,6 +148,46 @@
     <div id="detail-content"></div>
   </div>
   <div id="legend"></div>
+
+  <button id="config-toggle" title="Settings">&#9881;</button>
+  <div id="config-panel">
+    <div class="config-title">Settings</div>
+    <div class="config-section">Nodes</div>
+    <div class="config-group">
+      <label>Opacity <span id="val-nodeOpacity">0.9</span></label>
+      <input type="range" id="cfg-nodeOpacity" min="0.1" max="1" step="0.05" value="0.9">
+    </div>
+    <div class="config-group">
+      <label>Size <span id="val-nodeSize">1.0</span></label>
+      <input type="range" id="cfg-nodeSize" min="0.2" max="3" step="0.1" value="1">
+    </div>
+    <div class="config-group">
+      <label>Dim Isolated <span id="val-isolatedDim">0.3</span></label>
+      <input type="range" id="cfg-isolatedDim" min="0" max="1" step="0.05" value="0.3">
+    </div>
+    <div class="config-section">Links</div>
+    <div class="config-color-row">
+      <span>Color</span>
+      <input type="color" id="cfg-linkColor" value="#969696">
+    </div>
+    <div class="config-group">
+      <label>Opacity <span id="val-linkOpacity">0.8</span></label>
+      <input type="range" id="cfg-linkOpacity" min="0.05" max="1" step="0.05" value="0.8">
+    </div>
+    <div class="config-group">
+      <label>Width <span id="val-linkWidth">0.3</span></label>
+      <input type="range" id="cfg-linkWidth" min="0.1" max="3" step="0.1" value="0.3">
+    </div>
+    <div class="config-section">Physics</div>
+    <div class="config-group">
+      <label>Repulsion <span id="val-charge">-30</span></label>
+      <input type="range" id="cfg-charge" min="-200" max="-5" step="5" value="-30">
+    </div>
+    <div class="config-group">
+      <label>Distance <span id="val-distance">120</span></label>
+      <input type="range" id="cfg-distance" min="30" max="500" step="10" value="120">
+    </div>
+  </div>
 
   <script src="https://unpkg.com/3d-force-graph@1"></script>
   <script>
@@ -143,6 +239,50 @@
       return moduleColorMap.get(mod);
     }
 
+    // Config state
+    const cfg = {
+      nodeOpacity: 0.9,
+      nodeSize: 1.0,
+      isolatedDim: 0.3,
+      linkColor: '#969696',
+      linkOpacity: 0.8,
+      linkWidth: 0.3,
+      charge: -30,
+      distance: 120,
+    };
+
+    function linkRgba(alpha) {
+      const h = cfg.linkColor;
+      const r = parseInt(h.slice(1,3), 16);
+      const g = parseInt(h.slice(3,5), 16);
+      const b = parseInt(h.slice(5,7), 16);
+      return `rgba(${r},${g},${b},${alpha ?? cfg.linkOpacity})`;
+    }
+
+    function isIsolated(n) { return n.fanIn === 0 && n.fanOut === 0; }
+
+    function dimColor(hex, factor) {
+      let r, g, b;
+      if (hex.startsWith('#')) {
+        r = parseInt(hex.slice(1,3), 16);
+        g = parseInt(hex.slice(3,5), 16);
+        b = parseInt(hex.slice(5,7), 16);
+      } else if (hex.startsWith('rgb')) {
+        const m = hex.match(/(\d+)/g);
+        if (!m) return hex;
+        r = +m[0]; g = +m[1]; b = +m[2];
+      } else { return hex; }
+      return `rgb(${Math.round(r*factor)},${Math.round(g*factor)},${Math.round(b*factor)})`;
+    }
+
+    function nodeColor(n, baseColor) {
+      return isIsolated(n) ? dimColor(baseColor, cfg.isolatedDim) : baseColor;
+    }
+
+    function nodeSize(n, baseSize) {
+      return (isIsolated(n) ? baseSize * cfg.isolatedDim : baseSize) * cfg.nodeSize;
+    }
+
     // Health color: green -> orange -> red
     function healthColor(score) {
       const r = Math.min(255, Math.floor(score * 2 * 255));
@@ -177,6 +317,7 @@
 
       renderGalaxy();
       setupEvents();
+      setupConfig();
     }
 
     function renderGalaxy() {
@@ -185,14 +326,13 @@
       container.innerHTML = '';
 
       const data = {
-        nodes: graphData.nodes.map(n => ({
-          ...n,
-          color: getModuleColor(n.module),
-          size: 2 + Math.sqrt(n.pageRank * 10000),
-        })),
+        nodes: graphData.nodes.map(n => {
+          const base = getModuleColor(n.module);
+          return { ...n, color: nodeColor(n, base), size: nodeSize(n, 2 + Math.sqrt(n.pageRank * 10000)) };
+        }),
         links: graphData.edges.map(e => ({
           source: e.source, target: e.target,
-          color: e.isTypeOnly ? 'rgba(100,100,100,0.2)' : 'rgba(150,150,150,0.3)',
+          color: e.isTypeOnly ? linkRgba(0.4) : linkRgba(0.6),
         }))
       };
 
@@ -201,13 +341,14 @@
         .nodeLabel(n => `${n.path} (${n.loc} LOC)`)
         .nodeColor(n => n.color)
         .nodeVal(n => n.size)
-        .nodeOpacity(0.9)
+        .nodeOpacity(cfg.nodeOpacity)
         .linkColor(l => l.color)
-        .linkWidth(0.3)
-        .linkOpacity(0.4)
+        .linkWidth(cfg.linkWidth)
+        .linkOpacity(cfg.linkOpacity)
         .backgroundColor('#0a0a0f')
         .onNodeClick(n => showDetail(n));
 
+      applyForces();
       updateLegend('galaxy');
     }
 
@@ -224,16 +365,15 @@
       });
 
       const data = {
-        nodes: graphData.nodes.map(n => ({
-          ...n,
-          color: getModuleColor(n.module),
-          size: 2 + Math.sqrt(n.pageRank * 10000),
-        })),
+        nodes: graphData.nodes.map(n => {
+          const base = getModuleColor(n.module);
+          return { ...n, color: nodeColor(n, base), size: nodeSize(n, 2 + Math.sqrt(n.pageRank * 10000)) };
+        }),
         links: graphData.edges.map(e => ({
           source: e.source, target: e.target,
           color: circularPairs.has(`${e.source}->${e.target}`) || circularPairs.has(`${e.target}->${e.source}`)
-            ? 'rgba(220,38,38,0.8)' : 'rgba(150,150,150,0.3)',
-          width: circularPairs.has(`${e.source}->${e.target}`) ? 2 : 0.3,
+            ? 'rgba(220,38,38,0.8)' : linkRgba(0.6),
+          width: circularPairs.has(`${e.source}->${e.target}`) ? 2 : cfg.linkWidth,
         }))
       };
 
@@ -244,11 +384,13 @@
         .nodeLabel(n => n.path)
         .nodeColor(n => n.color)
         .nodeVal(n => n.size)
+        .nodeOpacity(cfg.nodeOpacity)
         .linkColor(l => l.color)
         .linkWidth(l => l.width)
         .backgroundColor('#0a0a0f')
         .onNodeClick(n => showDetail(n));
 
+      applyForces();
       updateLegend('depflow');
     }
 
@@ -258,14 +400,13 @@
       container.innerHTML = '';
 
       const data = {
-        nodes: graphData.nodes.map(n => ({
-          ...n,
-          color: healthColor(n.coupling),
-          size: 1 + n.loc / 20,
-        })),
+        nodes: graphData.nodes.map(n => {
+          const base = healthColor(n.coupling);
+          return { ...n, color: nodeColor(n, base), size: nodeSize(n, 1 + n.loc / 20) };
+        }),
         links: graphData.edges.map(e => ({
           source: e.source, target: e.target,
-          color: 'rgba(150,150,150,0.2)',
+          color: linkRgba(0.5),
         }))
       };
 
@@ -274,11 +415,13 @@
         .nodeLabel(n => `${n.path} (coupling: ${n.coupling.toFixed(2)})`)
         .nodeColor(n => n.color)
         .nodeVal(n => n.size)
+        .nodeOpacity(cfg.nodeOpacity)
         .linkColor(l => l.color)
-        .linkWidth(0.2)
+        .linkWidth(cfg.linkWidth)
         .backgroundColor('#0a0a0f')
         .onNodeClick(n => showDetail(n));
 
+      applyForces();
       updateLegend('hotspot');
     }
 
@@ -302,18 +445,20 @@
       });
 
       const data = {
-        nodes: graphData.nodes.map(n => ({
-          ...n,
-          color: n.id === targetId ? '#fbbf24'
-            : neighbors.has(n.id) ? getModuleColor(n.module)
-            : hop2.has(n.id) ? getModuleColor(n.module)
-            : '#1a1a24',
-          size: n.id === targetId ? 8 : neighbors.has(n.id) ? 4 : hop2.has(n.id) ? 2 : 0.5,
-          opacity: hop2.has(n.id) ? 0.9 : 0.1,
-        })),
+        nodes: graphData.nodes.map(n => {
+          const inFocus = hop2.has(n.id);
+          return {
+            ...n,
+            color: n.id === targetId ? '#fbbf24'
+              : neighbors.has(n.id) ? getModuleColor(n.module)
+              : inFocus ? getModuleColor(n.module)
+              : '#1a1a24',
+            size: (n.id === targetId ? 8 : neighbors.has(n.id) ? 4 : inFocus ? 2 : 0.5) * cfg.nodeSize,
+          };
+        }),
         links: graphData.edges.map(e => ({
           source: e.source, target: e.target,
-          color: (hop2.has(e.source) && hop2.has(e.target)) ? 'rgba(150,150,150,0.5)' : 'rgba(50,50,50,0.05)',
+          color: (hop2.has(e.source) && hop2.has(e.target)) ? linkRgba(0.7) : linkRgba(0.1),
         }))
       };
 
@@ -322,15 +467,16 @@
         .nodeLabel(n => n.path)
         .nodeColor(n => n.color)
         .nodeVal(n => n.size)
-        .nodeOpacity(n => n.opacity)
+        .nodeOpacity(cfg.nodeOpacity)
         .linkColor(l => l.color)
-        .linkWidth(0.3)
+        .linkWidth(cfg.linkWidth)
         .backgroundColor('#0a0a0f')
         .onNodeClick(n => {
           if (n.id !== targetId) renderFocus(n.id);
           showDetail(n);
         });
 
+      applyForces();
       updateLegend('focus');
     }
 
@@ -340,19 +486,18 @@
       container.innerHTML = '';
 
       const data = {
-        nodes: graphData.nodes.map(n => ({
-          ...n,
-          color: getModuleColor(n.module),
-          size: 2 + Math.sqrt(n.pageRank * 10000),
-        })),
+        nodes: graphData.nodes.map(n => {
+          const base = getModuleColor(n.module);
+          return { ...n, color: nodeColor(n, base), size: nodeSize(n, 2 + Math.sqrt(n.pageRank * 10000)) };
+        }),
         links: graphData.edges.map(e => {
           const sn = nodeById.get(e.source);
           const tn = nodeById.get(e.target);
           const crossModule = sn && tn && sn.module !== tn.module;
           return {
             source: e.source, target: e.target,
-            color: crossModule ? 'rgba(255,200,50,0.5)' : 'rgba(100,100,100,0.15)',
-            width: crossModule ? 1.5 : 0.2,
+            color: crossModule ? 'rgba(255,200,50,0.5)' : linkRgba(0.4),
+            width: crossModule ? 1.5 : cfg.linkWidth,
           };
         })
       };
@@ -362,11 +507,13 @@
         .nodeLabel(n => `${n.module}${n.label}`)
         .nodeColor(n => n.color)
         .nodeVal(n => n.size)
+        .nodeOpacity(cfg.nodeOpacity)
         .linkColor(l => l.color)
         .linkWidth(l => l.width)
         .backgroundColor('#0a0a0f')
         .onNodeClick(n => showDetail(n));
 
+      applyForces();
       updateLegend('module');
     }
 
@@ -390,7 +537,7 @@
           else if (junkModules.has(n.module)) { color = '#ef4444'; } // Red for junk drawer members
           else if (extractModules.has(n.module)) { color = '#22c55e'; } // Green for extraction candidates
 
-          return { ...n, color, size };
+          return { ...n, color: nodeColor(n, color), size: nodeSize(n, size) };
         }),
         links: graphData.edges.map(e => {
           const sn = nodeById.get(e.source);
@@ -398,8 +545,8 @@
           const crossModule = sn && tn && sn.module !== tn.module;
           return {
             source: e.source, target: e.target,
-            color: crossModule ? 'rgba(239,68,68,0.4)' : 'rgba(100,100,100,0.15)',
-            width: crossModule ? 1 : 0.2,
+            color: crossModule ? 'rgba(239,68,68,0.4)' : linkRgba(0.4),
+            width: crossModule ? 1 : cfg.linkWidth,
           };
         })
       };
@@ -413,12 +560,34 @@
         })
         .nodeColor(n => n.color)
         .nodeVal(n => n.size)
+        .nodeOpacity(cfg.nodeOpacity)
         .linkColor(l => l.color)
         .linkWidth(l => l.width)
         .backgroundColor('#0a0a0f')
         .onNodeClick(n => showDetail(n));
 
+      applyForces();
       updateLegend('forces');
+    }
+
+    function applyForces() {
+      if (!graph3d) return;
+      const charge = graph3d.d3Force('charge');
+      if (charge) charge.strength(cfg.charge);
+      const link = graph3d.d3Force('link');
+      if (link) link.distance(cfg.distance);
+      graph3d.d3ReheatSimulation();
+    }
+
+    function rerender() {
+      switch (currentView) {
+        case 'galaxy': renderGalaxy(); break;
+        case 'depflow': renderDepFlow(); break;
+        case 'hotspot': renderHotspot(); break;
+        case 'focus': renderFocus(focusNode || graphData.nodes[0]?.id); break;
+        case 'module': renderModule(); break;
+        case 'forces': renderForces(); break;
+      }
     }
 
     function showDetail(node) {
@@ -547,7 +716,72 @@
       });
     }
 
+    function setupConfig() {
+      const toggle = document.getElementById('config-toggle');
+      const panel = document.getElementById('config-panel');
+
+      toggle.addEventListener('click', () => {
+        panel.classList.toggle('visible');
+        toggle.classList.toggle('active');
+      });
+
+      let debounceTimer = null;
+      function scheduleRerender() {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(rerender, 150);
+      }
+
+      function liveUpdate(prop, val) {
+        if (!graph3d) return;
+        if (prop === 'nodeOpacity') graph3d.nodeOpacity(val);
+        else if (prop === 'linkOpacity') graph3d.linkOpacity(val);
+        else if (prop === 'charge') { applyForces(); return; }
+        else if (prop === 'distance') { applyForces(); return; }
+      }
+
+      const sliders = [
+        { id: 'cfg-nodeOpacity', key: 'nodeOpacity', valId: 'val-nodeOpacity', live: true, fmt: v => v.toFixed(2) },
+        { id: 'cfg-nodeSize', key: 'nodeSize', valId: 'val-nodeSize', live: false, fmt: v => v.toFixed(1) },
+        { id: 'cfg-isolatedDim', key: 'isolatedDim', valId: 'val-isolatedDim', live: false, fmt: v => v.toFixed(2) },
+        { id: 'cfg-linkOpacity', key: 'linkOpacity', valId: 'val-linkOpacity', live: false, fmt: v => v.toFixed(2) },
+        { id: 'cfg-linkWidth', key: 'linkWidth', valId: 'val-linkWidth', live: false, fmt: v => v.toFixed(1) },
+        { id: 'cfg-charge', key: 'charge', valId: 'val-charge', live: true, fmt: v => String(Math.round(v)) },
+        { id: 'cfg-distance', key: 'distance', valId: 'val-distance', live: true, fmt: v => String(Math.round(v)) },
+      ];
+
+      sliders.forEach(s => {
+        const input = document.getElementById(s.id);
+        const display = document.getElementById(s.valId);
+
+        input.addEventListener('input', () => {
+          const val = parseFloat(input.value);
+          cfg[s.key] = val;
+          display.textContent = s.fmt(val);
+          if (s.live) liveUpdate(s.key, val);
+          else scheduleRerender();
+        });
+      });
+
+      // Link color picker
+      document.getElementById('cfg-linkColor').addEventListener('input', (e) => {
+        cfg.linkColor = e.target.value;
+        scheduleRerender();
+      });
+    }
+
     init();
+
+    // Auto-reload: detect server restart
+    (function() {
+      let wasDown = false;
+      setInterval(async () => {
+        try {
+          const r = await fetch('/api/ping');
+          if (wasDown && r.ok) location.reload();
+          wasDown = false;
+        } catch { wasDown = true; }
+      }, 1000);
+    })();
   </script>
 </body>
 </html>

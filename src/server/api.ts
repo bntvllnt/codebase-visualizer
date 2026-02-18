@@ -4,6 +4,9 @@ import type { CodebaseGraph } from "../types/index.js";
 export function createApiRoutes(graph: CodebaseGraph): Router {
   const router = Router();
 
+  // Ping for live-reload detection
+  router.get("/ping", (_req, res) => { res.json({ ok: true }); });
+
   // Full graph data for 3D renderer
   router.get("/graph", (_req, res) => {
     const fileNodes = graph.nodes.filter((n) => n.type === "file");

@@ -1,5 +1,15 @@
 #!/usr/bin/env node
 
+// Crash = exit immediately (don't let tsx watch swallow it)
+process.on("uncaughtException", (err) => {
+  console.error("Fatal:", err.message);
+  process.exit(1);
+});
+process.on("unhandledRejection", (err) => {
+  console.error("Fatal:", err instanceof Error ? err.message : err);
+  process.exit(1);
+});
+
 import { Command } from "commander";
 import { parseCodebase } from "./parser/index.js";
 import { buildGraph } from "./graph/index.js";

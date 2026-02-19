@@ -2,6 +2,20 @@
 
 3D interactive codebase visualization for TypeScript projects. Parses your codebase, builds a dependency graph, computes architectural metrics, and serves an interactive 3D map in your browser. Also works as an MCP server for LLM-assisted code understanding.
 
+## Screenshots
+
+Galaxy view — 3D force-directed graph with module clouds and group legend:
+
+![Galaxy View](docs/screenshot-galaxy.png)
+
+Module view — files clustered by directory with labeled cloud spheres:
+
+![Module View](docs/screenshot-module.png)
+
+Forces view — centrifuge analysis showing tension, bridges, and extraction candidates:
+
+![Forces View](docs/screenshot-forces.png)
+
 ## Install
 
 ```bash

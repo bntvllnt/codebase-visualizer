@@ -3,11 +3,12 @@
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { useGraphData } from "@/hooks/use-graph-data";
 import { useGraphConfig } from "@/hooks/use-graph-config";
-import type { GraphApiNode, GraphApiResponse, ForceApiResponse, GraphConfig, ViewType } from "@/lib/types";
+import type { GraphApiNode, GraphApiResponse, ForceApiResponse, GroupMetrics, GraphConfig, ViewType } from "@/lib/types";
 
 interface GraphContextValue {
   graphData: GraphApiResponse | undefined;
   forceData: ForceApiResponse | undefined;
+  groupData: GroupMetrics[] | undefined;
   projectName: string;
   isLoading: boolean;
   error: Error | undefined;
@@ -34,7 +35,7 @@ export function useGraphContext(): GraphContextValue {
 }
 
 export function GraphProvider({ children }: { children: React.ReactNode }) {
-  const { graphData, forceData, projectName, isLoading, error } = useGraphData();
+  const { graphData, forceData, groupData, projectName, isLoading, error } = useGraphData();
   const { config, setConfig } = useGraphConfig();
   const [currentView, setCurrentView] = useState<ViewType>("galaxy");
   const [selectedNode, setSelectedNode] = useState<GraphApiNode | null>(null);
@@ -77,6 +78,7 @@ export function GraphProvider({ children }: { children: React.ReactNode }) {
       value={{
         graphData,
         forceData,
+        groupData,
         projectName,
         isLoading,
         error,

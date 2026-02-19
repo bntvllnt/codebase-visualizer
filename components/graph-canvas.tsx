@@ -28,6 +28,7 @@ import {
   coverageView,
   getModuleColor,
 } from "@/lib/views";
+import { cloudGroup } from "@/src/cloud-group";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ForceGraph3D = dynamic(() => import("react-force-graph-3d") as any, {
@@ -181,16 +182,6 @@ export function GraphCanvas({
       // Read node positions from fgNodesRef — the library mutates these in-place
       const fgNodes = fgNodesRef.current;
       const groups = new Map<string, Array<Record<string, unknown>>>();
-
-      // Collapse deep paths to top-level groups for digestible clouds
-      // src/components/ui/ → "components", convex/agents/eval/ → "convex", e2e/ → "e2e"
-      const SOURCE_DIRS = new Set(["src", "lib", "app", "packages", "apps"]);
-      function cloudGroup(mod: string): string {
-        const parts = mod.replace(/\/$/, "").split("/").filter(Boolean);
-        if (parts.length === 0 || parts[0] === ".") return "root";
-        if (SOURCE_DIRS.has(parts[0]) && parts.length > 1) return parts[1];
-        return parts[0];
-      }
 
       fgNodes.forEach((n) => {
         if (n.x === undefined) return;

@@ -210,6 +210,18 @@ function runTool(graph: CodebaseGraph, tool: string, params: Record<string, unkn
         }],
       };
 
+    case "get_groups": {
+      const groups = graph.groups;
+      if (groups.length === 0) {
+        return { content: [{ type: "text", text: "No groups found." }] };
+      }
+      const lines = groups.map((g, i) =>
+        `${i + 1}. ${g.name.toUpperCase()} — ${g.files} files, ${g.loc.toLocaleString()} LOC, ` +
+        `importance: ${(g.importance * 100).toFixed(1)}%, coupling: ${g.fanIn + g.fanOut} (in:${g.fanIn} out:${g.fanOut})`,
+      );
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+
     case "find_dead_exports": {
       const mod = params.module as string | undefined;
       const limit = (params.limit as number | undefined) ?? 20;
@@ -259,6 +271,7 @@ export function GET() {
     { name: "get_module_structure", description: "Module structure with cross-module dependencies" },
     { name: "analyze_forces", description: "Centrifuge force analysis" },
     { name: "find_dead_exports", description: "Unused exports across the codebase", params: ["module?", "limit?"] },
+    { name: "get_groups", description: "Top-level directory groups with aggregate metrics" },
   ];
   return NextResponse.json({ tools });
 }

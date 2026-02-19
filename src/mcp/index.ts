@@ -369,6 +369,27 @@ export async function startMcpServer(graph: CodebaseGraph): Promise<void> {
     }
   );
 
+  // Tool 8: get_groups
+  server.tool(
+    "get_groups",
+    "Get top-level directory groups with aggregate metrics: files, LOC, importance (PageRank), coupling (fanIn/fanOut)",
+    {},
+    async () => {
+      const groups = graph.groups;
+
+      if (groups.length === 0) {
+        return { content: [{ type: "text" as const, text: "No groups found." }] };
+      }
+
+      const lines = groups.map((g, i) =>
+        `${i + 1}. ${g.name.toUpperCase()} — ${g.files} files, ${g.loc.toLocaleString()} LOC, ` +
+        `importance: ${(g.importance * 100).toFixed(1)}%, coupling: ${g.fanIn + g.fanOut} (in:${g.fanIn} out:${g.fanOut})`,
+      );
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    },
+  );
+
   // Start stdio transport
   const transport = new StdioServerTransport();
   await server.connect(transport);

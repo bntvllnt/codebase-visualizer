@@ -106,11 +106,22 @@ export interface ForceAnalysis {
   summary: string;
 }
 
+export interface GroupMetrics {
+  name: string;
+  files: number;
+  loc: number;
+  importance: number;
+  fanIn: number;
+  fanOut: number;
+  color: string;
+}
+
 export interface CodebaseGraph {
   nodes: GraphNode[];
   edges: GraphEdge[];
   fileMetrics: Map<string, FileMetrics>;
   moduleMetrics: Map<string, ModuleMetrics>;
+  groups: GroupMetrics[];
   forceAnalysis: ForceAnalysis;
   stats: {
     totalFiles: number;

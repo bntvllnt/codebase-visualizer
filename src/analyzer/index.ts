@@ -6,6 +6,7 @@ import type {
   ParsedFile,
   FileMetrics,
   ModuleMetrics,
+  GroupMetrics,
   ForceAnalysis,
   TensionFile,
   BridgeFile,
@@ -14,6 +15,7 @@ import type {
   GraphNode,
 } from "../types/index.js";
 import { type BuiltGraph, detectCircularDeps } from "../graph/index.js";
+import { cloudGroup } from "../cloud-group.js";
 
 export function analyzeGraph(built: BuiltGraph, parsedFiles?: ParsedFile[]): CodebaseGraph {
   const { graph, nodes, edges } = built;
@@ -100,6 +102,9 @@ export function analyzeGraph(built: BuiltGraph, parsedFiles?: ParsedFile[]): Cod
   // Module metrics
   const moduleMetrics = computeModuleMetrics(graph, fileNodes, fileMetrics);
 
+  // Group metrics (cloud-level aggregation)
+  const groups = computeGroups(fileNodes, fileMetrics);
+
   // Centrifuge force analysis
   const forceAnalysis = computeForceAnalysis(graph, fileNodes, fileMetrics, moduleMetrics, betweennessScores);
 
@@ -116,6 +121,7 @@ export function analyzeGraph(built: BuiltGraph, parsedFiles?: ParsedFile[]): Cod
     edges,
     fileMetrics,
     moduleMetrics,
+    groups,
     forceAnalysis,
     stats: {
       totalFiles: fileNodes.length,
@@ -124,6 +130,52 @@ export function analyzeGraph(built: BuiltGraph, parsedFiles?: ParsedFile[]): Cod
       circularDeps,
     },
   };
+}
+
+const GROUP_COLORS = [
+  "#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c",
+  "#0891b2", "#ca8a04", "#e11d48", "#4f46e5", "#059669",
+];
+
+const MAX_LEGEND_GROUPS = 8;
+
+export function computeGroups(
+  fileNodes: GraphNode[],
+  fileMetrics: Map<string, FileMetrics>,
+): GroupMetrics[] {
+  const agg = new Map<string, { files: number; loc: number; pr: number; fanIn: number; fanOut: number }>();
+
+  for (const node of fileNodes) {
+    const group = cloudGroup(node.module);
+    const existing = agg.get(group) ?? { files: 0, loc: 0, pr: 0, fanIn: 0, fanOut: 0 };
+    const metrics = fileMetrics.get(node.id);
+    existing.files++;
+    existing.loc += node.loc;
+    existing.pr += metrics?.pageRank ?? 0;
+    existing.fanIn += metrics?.fanIn ?? 0;
+    existing.fanOut += metrics?.fanOut ?? 0;
+    agg.set(group, existing);
+  }
+
+  const groups: GroupMetrics[] = [];
+  let colorIdx = 0;
+
+  const sorted = [...agg.entries()].sort((a, b) => b[1].pr - a[1].pr);
+  for (const [name, data] of sorted) {
+    if (groups.length >= MAX_LEGEND_GROUPS) break;
+    groups.push({
+      name,
+      files: data.files,
+      loc: data.loc,
+      importance: Math.round(data.pr * 10000) / 10000,
+      fanIn: data.fanIn,
+      fanOut: data.fanOut,
+      color: GROUP_COLORS[colorIdx % GROUP_COLORS.length],
+    });
+    colorIdx++;
+  }
+
+  return groups;
 }
 
 function computePageRank(graph: Graph): Map<string, number> {

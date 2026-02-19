@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { analyzeGraph } from "./index.js";
 import { buildGraph } from "../graph/index.js";
+import { cloudGroup } from "../cloud-group.js";
 import type { ParsedFile } from "../types/index.js";
 
 function makeFile(relativePath: string, overrides?: Partial<ParsedFile>): ParsedFile {
@@ -235,6 +236,7 @@ describe("analyzeGraph", () => {
     expect(result).toHaveProperty("edges");
     expect(result).toHaveProperty("fileMetrics");
     expect(result).toHaveProperty("moduleMetrics");
+    expect(result).toHaveProperty("groups");
     expect(result).toHaveProperty("forceAnalysis");
     expect(result).toHaveProperty("stats");
     expect(result.forceAnalysis).toHaveProperty("moduleCohesion");
@@ -242,5 +244,122 @@ describe("analyzeGraph", () => {
     expect(result.forceAnalysis).toHaveProperty("bridgeFiles");
     expect(result.forceAnalysis).toHaveProperty("extractionCandidates");
     expect(result.forceAnalysis).toHaveProperty("summary");
+  });
+});
+
+describe("cloudGroup", () => {
+  it("collapses src/ to second segment", () => {
+    expect(cloudGroup("src/components/")).toBe("components");
+    expect(cloudGroup("src/utils/")).toBe("utils");
+  });
+
+  it("collapses lib/ app/ packages/ apps/ to second segment", () => {
+    expect(cloudGroup("lib/helpers/")).toBe("helpers");
+    expect(cloudGroup("app/api/")).toBe("api");
+    expect(cloudGroup("packages/shared/")).toBe("shared");
+    expect(cloudGroup("apps/web/")).toBe("web");
+  });
+
+  it("returns first segment for non-source dirs", () => {
+    expect(cloudGroup("convex/agents/")).toBe("convex");
+    expect(cloudGroup("e2e/tests/")).toBe("e2e");
+    expect(cloudGroup("scripts/")).toBe("scripts");
+  });
+
+  it("returns root for empty or dot paths", () => {
+    expect(cloudGroup("")).toBe("root");
+    expect(cloudGroup(".")).toBe("root");
+    expect(cloudGroup("./")).toBe("root");
+  });
+
+  it("handles paths without trailing slash", () => {
+    expect(cloudGroup("src/components")).toBe("components");
+    expect(cloudGroup("convex")).toBe("convex");
+  });
+
+  it("returns src if only src/ with no sub-segment", () => {
+    expect(cloudGroup("src")).toBe("src");
+  });
+});
+
+describe("computeGroups", () => {
+  it("aggregates files by cloud group", () => {
+    const files = [
+      makeFile("src/components/button.ts", { loc: 50 }),
+      makeFile("src/components/input.ts", { loc: 30 }),
+      makeFile("src/utils/helpers.ts", { loc: 20 }),
+      makeFile("convex/schema.ts", { loc: 40 }),
+    ];
+    const built = buildGraph(files);
+    const result = analyzeGraph(built, files);
+    const groups = result.groups;
+
+    expect(groups.length).toBeGreaterThan(0);
+
+    const components = groups.find((g) => g.name === "components");
+    expect(components).toBeDefined();
+    expect(components?.files).toBe(2);
+    expect(components?.loc).toBe(80);
+
+    const convex = groups.find((g) => g.name === "convex");
+    expect(convex).toBeDefined();
+    expect(convex?.files).toBe(1);
+  });
+
+  it("sorts groups by importance (PageRank) descending", () => {
+    const files = [
+      makeFile("src/a/x.ts", { loc: 100 }),
+      makeFile("src/b/y.ts", { imports: [imp("src/a/x.ts")], loc: 50 }),
+      makeFile("src/c/z.ts", { imports: [imp("src/a/x.ts")], loc: 50 }),
+    ];
+    const built = buildGraph(files);
+    const result = analyzeGraph(built, files);
+    const groups = result.groups;
+
+    for (let i = 1; i < groups.length; i++) {
+      expect(groups[i - 1].importance).toBeGreaterThanOrEqual(groups[i].importance);
+    }
+  });
+
+  it("assigns colors to groups", () => {
+    const files = [
+      makeFile("src/a/x.ts"),
+      makeFile("src/b/y.ts"),
+    ];
+    const built = buildGraph(files);
+    const result = analyzeGraph(built, files);
+
+    for (const group of result.groups) {
+      expect(group.color).toMatch(/^#[0-9a-f]{6}$/i);
+    }
+  });
+
+  it("returns empty array for zero files", () => {
+    const built = buildGraph([]);
+    const result = analyzeGraph(built, []);
+    expect(result.groups).toEqual([]);
+  });
+
+  it("caps at 8 groups max", () => {
+    const files = Array.from({ length: 12 }, (_, i) =>
+      makeFile(`dir${i}/file.ts`, { loc: 10 }),
+    );
+    const built = buildGraph(files);
+    const result = analyzeGraph(built, files);
+    expect(result.groups.length).toBeLessThanOrEqual(8);
+  });
+
+  it("includes fanIn and fanOut per group", () => {
+    const files = [
+      makeFile("src/a/x.ts", { imports: [imp("src/b/y.ts")] }),
+      makeFile("src/b/y.ts"),
+    ];
+    const built = buildGraph(files);
+    const result = analyzeGraph(built, files);
+
+    for (const group of result.groups) {
+      expect(group).toHaveProperty("fanIn");
+      expect(group).toHaveProperty("fanOut");
+    }
   });
 });

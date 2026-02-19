@@ -209,6 +209,43 @@ describe("GET /api/file/[...path]", () => {
   });
 });
 
+describe("GET /api/groups", () => {
+  it("returns array of group metrics", async () => {
+    const { GET } = await import("../../app/api/groups/route.js");
+    const response = GET();
+    const data = await response.json();
+
+    expect(Array.isArray(data)).toBe(true);
+  });
+
+  it("each group has required fields", async () => {
+    const { GET } = await import("../../app/api/groups/route.js");
+    const response = GET();
+    const data = await response.json();
+
+    if (data.length > 0) {
+      const group = data[0];
+      expect(group).toHaveProperty("name");
+      expect(group).toHaveProperty("files");
+      expect(group).toHaveProperty("loc");
+      expect(group).toHaveProperty("importance");
+      expect(group).toHaveProperty("fanIn");
+      expect(group).toHaveProperty("fanOut");
+      expect(group).toHaveProperty("color");
+    }
+  });
+
+  it("groups are sorted by importance descending", async () => {
+    const { GET } = await import("../../app/api/groups/route.js");
+    const response = GET();
+    const data = await response.json();
+
+    for (let i = 1; i < data.length; i++) {
+      expect(data[i - 1].importance).toBeGreaterThanOrEqual(data[i].importance);
+    }
+  });
+});
+
 describe("POST /api/mcp", () => {
   it("lists available tools on GET", async () => {
     const { GET } = await import("../../app/api/mcp/route.js");
@@ -216,8 +253,9 @@ describe("POST /api/mcp", () => {
     const data = await response.json();
 
     expect(data).toHaveProperty("tools");
-    expect(data.tools.length).toBe(7);
+    expect(data.tools.length).toBe(8);
     expect(data.tools.map((t: { name: string }) => t.name)).toContain("codebase_overview");
+    expect(data.tools.map((t: { name: string }) => t.name)).toContain("get_groups");
   });
 
   it("invokes codebase_overview tool", async () => {
@@ -316,6 +354,20 @@ describe("POST /api/mcp", () => {
     const parsed = JSON.parse(data.content[0].text);
     expect(parsed).toHaveProperty("totalDeadExports");
     expect(parsed).toHaveProperty("files");
+  });
+
+  it("invokes get_groups tool", async () => {
+    const { POST } = await import("../../app/api/mcp/route.js");
+    const request = new Request("http://localhost/api/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool: "get_groups" }),
+    });
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(data).toHaveProperty("content");
+    expect(data.content[0].type).toBe("text");
   });
 
   it("returns error for unknown tool", async () => {

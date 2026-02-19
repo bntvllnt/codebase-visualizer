@@ -1,5 +1,5 @@
 import useSWR from "swr";
-import type { GraphApiResponse, ForceApiResponse } from "@/lib/types";
+import type { GraphApiResponse, ForceApiResponse, GroupMetrics } from "@/lib/types";
 
 async function fetcher<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -10,6 +10,7 @@ async function fetcher<T>(url: string): Promise<T> {
 export function useGraphData(): {
   graphData: GraphApiResponse | undefined;
   forceData: ForceApiResponse | undefined;
+  groupData: GroupMetrics[] | undefined;
   projectName: string;
   isLoading: boolean;
   error: Error | undefined;
@@ -24,6 +25,11 @@ export function useGraphData(): {
     fetcher,
     { revalidateOnFocus: false, revalidateOnReconnect: false },
   );
+  const { data: groupData } = useSWR<GroupMetrics[]>(
+    "/api/groups",
+    fetcher,
+    { revalidateOnFocus: false, revalidateOnReconnect: false },
+  );
   const { data: metaData } = useSWR<{ projectName: string }>(
     "/api/meta",
     fetcher,
@@ -33,6 +39,7 @@ export function useGraphData(): {
   return {
     graphData,
     forceData,
+    groupData,
     projectName: metaData?.projectName ?? "Codebase Visualizer",
     isLoading: graphLoading || forceLoading,
     error: graphError ?? forceError,

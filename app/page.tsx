@@ -13,6 +13,7 @@ function App(): React.ReactElement | null {
   const {
     graphData,
     forceData,
+    groupData,
     projectName,
     isLoading,
     error,
@@ -69,7 +70,7 @@ function App(): React.ReactElement | null {
         onNavigate={handleNavigate}
         onFocus={handleFocus}
       />
-      <Legend view={currentView} />
+      <Legend view={currentView} groups={groupData} showClouds={config.showModuleBoxes} />
       <SettingsPanel config={config} onChange={setConfig} />
     </>
   );

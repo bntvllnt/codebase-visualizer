@@ -184,14 +184,14 @@ Pending uncommitted: CLI stability fix + 3D clouds overhaul. Commit before shipp
 
 | # | Scope Item | Status | Iteration |
 |---|-----------|--------|-----------|
-| 1 | GroupMetrics types | [ ] Pending | - |
-| 2 | computeGroups() analyzer | [ ] Pending | - |
-| 3 | /api/groups endpoint | [ ] Pending | - |
-| 4 | get_groups MCP tool | [ ] Pending | - |
-| 5 | Fetch groups in hook/provider | [ ] Pending | - |
-| 6 | Legend with group swatches | [ ] Pending | - |
-| 7 | Extract cloudGroup() shared util | [ ] Pending | - |
-| 8 | Tests | [ ] Pending | - |
+| 1 | GroupMetrics types | [x] Complete | 1 |
+| 2 | computeGroups() analyzer | [x] Complete | 1 |
+| 3 | /api/groups endpoint | [x] Complete | 1 |
+| 4 | get_groups MCP tool | [x] Complete | 1 |
+| 5 | Fetch groups in hook/provider | [x] Complete | 1 |
+| 6 | Legend with group swatches | [x] Complete | 1 |
+| 7 | Extract cloudGroup() shared util | [x] Complete | 1 |
+| 8 | Tests | [x] Complete | 1 |
 
 ## Timeline
 

@@ -53,6 +53,16 @@ export interface ForceApiResponse {
   summary: string;
 }
 
+export interface GroupMetrics {
+  name: string;
+  files: number;
+  loc: number;
+  importance: number;
+  fanIn: number;
+  fanOut: number;
+  color: string;
+}
+
 export type ViewType =
   | "galaxy"
   | "depflow"

@@ -86,6 +86,29 @@ export function buildGraph(files: ParsedFile[]): BuiltGraph {
     }
   }
 
+  // Add edges from test file associations (testFile metadata from parser)
+  for (const file of files) {
+    if (file.testFile && fileRelPaths.has(file.testFile)) {
+      const testPath = file.testFile;
+      const implPath = file.relativePath;
+      // Edge: test -> impl (test depends on implementation)
+      if (graph.hasNode(testPath) && !graph.hasEdge(testPath, implPath)) {
+        graph.addEdge(testPath, implPath, {
+          symbols: ["tests"],
+          isTypeOnly: false,
+          weight: 1,
+        });
+        edges.push({
+          source: testPath,
+          target: implPath,
+          symbols: ["tests"],
+          isTypeOnly: false,
+          weight: 1,
+        });
+      }
+    }
+  }
+
   return { graph, nodes, edges };
 }
 

@@ -10,14 +10,16 @@
   "packageManager": "pnpm@10.28.2",
   "scripts": {
     "preinstall": "npx only-allow pnpm",
-    "build": "tsc -p tsconfig.build.json",
-    "dev": "tsx watch src/cli.ts",
+    "build": "tsc -p tsconfig.build.json && next build",
+    "build:cli": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src/",
+    "test:e2e": "playwright test",
+    "lint": "eslint src/ app/ components/ hooks/ lib/",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist .next"
   },
   "keywords": [
     "codebase",
@@ -34,23 +36,36 @@
   "author": "bntvllnt",
   "license": "MIT",
   "dependencies": {
+    "3d-force-graph": "^1.79.1",
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "commander": "^12.0.0",
-    "express": "^4.21.0",
     "graphology": "^0.25.4",
     "graphology-metrics": "^2.3.0",
     "graphology-shortest-path": "^2.1.0",
-    "open": "^10.1.0",
+    "lucide-react": "^0.574.0",
+    "next": "^16.1.6",
+    "open": "^11.0.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-force-graph-3d": "^1.29.1",
+    "swr": "^2.4.0",
+    "tailwind-merge": "^3.4.1",
+    "three": "^0.183.0",
     "typescript": "^5.7.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/express": "^5.0.6",
+    "@playwright/test": "^1.58.2",
+    "@tailwindcss/postcss": "^4.2.0",
     "@types/node": "^22.0.0",
-    "@types/supertest": "^6.0.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.182.0",
     "eslint": "^10.0.0",
-    "supertest": "^7.2.2",
+    "tailwindcss": "^4.2.0",
     "tsx": "^4.21.0",
     "typescript-eslint": "^8.56.0",
     "vitest": "^3.0.0"
@@ -60,6 +75,11 @@
   },
   "files": [
     "dist",
-    "public"
+    "app",
+    "components",
+    "hooks",
+    "lib",
+    "public",
+    ".next"
   ]
 }

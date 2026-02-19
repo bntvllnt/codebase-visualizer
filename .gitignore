@@ -1,4 +1,6 @@
 node_modules/
 dist/
+.next/
 *.tsbuildinfo
 .env
+next-env.d.ts

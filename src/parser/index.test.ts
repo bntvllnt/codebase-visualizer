@@ -245,6 +245,71 @@ export const bar = foo;
     });
   });
 
+  describe("tsconfig path alias resolution", () => {
+    it("resolves @/ alias imports using tsconfig paths", () => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "codebase-viz-alias-"));
+      try {
+        fs.writeFileSync(
+          path.join(projectDir, "tsconfig.json"),
+          JSON.stringify({
+            compilerOptions: {
+              paths: { "@/*": ["./src/*"] },
+            },
+          }),
+        );
+        fs.mkdirSync(path.join(projectDir, "src", "lib"), { recursive: true });
+        fs.mkdirSync(path.join(projectDir, "src", "components"), { recursive: true });
+        fs.writeFileSync(
+          path.join(projectDir, "src", "lib", "utils.ts"),
+          `export function cn(): string { return ""; }\n`,
+        );
+        fs.writeFileSync(
+          path.join(projectDir, "src", "components", "button.tsx"),
+          `import { cn } from "@/lib/utils";\nexport function Button(): void { cn(); }\n`,
+        );
+
+        const files = parseCodebase(projectDir);
+        const button = files.find((f) => f.relativePath === "src/components/button.tsx");
+        expect(button?.imports).toHaveLength(1);
+        expect(button?.imports[0].from).toBe("@/lib/utils");
+        expect(button?.imports[0].resolvedFrom).toBe("src/lib/utils.ts");
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+
+    it("skips non-alias external imports even with tsconfig paths", () => {
+      const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "codebase-viz-alias2-"));
+      try {
+        fs.writeFileSync(
+          path.join(projectDir, "tsconfig.json"),
+          JSON.stringify({
+            compilerOptions: {
+              paths: { "@/*": ["./src/*"] },
+            },
+          }),
+        );
+        fs.mkdirSync(path.join(projectDir, "src"), { recursive: true });
+        fs.writeFileSync(
+          path.join(projectDir, "src", "index.ts"),
+          `import React from "react";\nimport { cn } from "@/lib/utils";\nexport const x = 1;\n`,
+        );
+        fs.mkdirSync(path.join(projectDir, "src", "lib"), { recursive: true });
+        fs.writeFileSync(
+          path.join(projectDir, "src", "lib", "utils.ts"),
+          `export function cn(): string { return ""; }\n`,
+        );
+
+        const files = parseCodebase(projectDir);
+        const index = files.find((f) => f.relativePath === "src/index.ts");
+        expect(index?.imports).toHaveLength(1);
+        expect(index?.imports[0].from).toBe("@/lib/utils");
+      } finally {
+        fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("edge cases", () => {
     it("skips .d.ts files", () => {
       const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "codebase-viz-dts-"));

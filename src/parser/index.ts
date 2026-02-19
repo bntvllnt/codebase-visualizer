@@ -4,6 +4,41 @@ import fs from "fs";
 import { execFileSync } from "child_process";
 import type { ParsedFile, ParsedExport, ParsedImport } from "../types/index.js";
 
+interface PathAlias {
+  prefix: string;
+  baseDir: string;
+}
+
+function loadTsconfigPaths(rootDir: string): PathAlias[] {
+  const aliases: PathAlias[] = [];
+  const tsconfigPath = path.join(rootDir, "tsconfig.json");
+  if (!fs.existsSync(tsconfigPath)) return aliases;
+
+  try {
+    const result = ts.readConfigFile(tsconfigPath, (p) => fs.readFileSync(p, "utf-8"));
+    if (result.error) return aliases;
+
+    const config = result.config as {
+      compilerOptions?: { paths?: Record<string, string[]>; baseUrl?: string };
+    };
+    const paths = config.compilerOptions?.paths;
+    const baseUrl = config.compilerOptions?.baseUrl ?? ".";
+    if (!paths) return aliases;
+
+    for (const [pattern, targets] of Object.entries(paths)) {
+      if (targets.length === 0) continue;
+      const prefix = pattern.replace(/\*$/, "");
+      const target = targets[0].replace(/\*$/, "");
+      const baseDir = path.resolve(rootDir, baseUrl, target);
+      aliases.push({ prefix, baseDir });
+    }
+  } catch {
+    /* malformed tsconfig — skip alias resolution */
+  }
+
+  return aliases;
+}
+
 export function parseCodebase(rootDir: string): ParsedFile[] {
   const absoluteRoot = path.resolve(rootDir);
 
@@ -16,6 +51,8 @@ export function parseCodebase(rootDir: string): ParsedFile[] {
   if (tsFiles.length === 0) {
     throw new Error(`No TypeScript files found in ${rootDir}`);
   }
+
+  const pathAliases = loadTsconfigPaths(absoluteRoot);
 
   const program = ts.createProgram(tsFiles, {
     target: ts.ScriptTarget.ES2022,
@@ -33,14 +70,14 @@ export function parseCodebase(rootDir: string): ParsedFile[] {
     if (!sourceFile) continue;
 
     try {
-      const result = parseFile(sourceFile, checker, absoluteRoot);
+      const result = parseFile(sourceFile, checker, absoluteRoot, pathAliases);
       parsed.push(result);
     } catch {
       console.warn(`Skipped ${path.relative(absoluteRoot, filePath)}: parse error`);
     }
   }
 
-  const resolved = resolveImportPaths(parsed, absoluteRoot);
+  const resolved = resolveImportPaths(parsed, absoluteRoot, pathAliases);
   const churnMap = getGitChurn(absoluteRoot);
   return matchTestFiles(resolved).map((f) => ({
     ...f,
@@ -117,12 +154,12 @@ function walkDir(dir: string, rootDir: string, results: string[], visited: Set<s
   }
 }
 
-function parseFile(sourceFile: ts.SourceFile, checker: ts.TypeChecker, rootDir: string): ParsedFile {
+function parseFile(sourceFile: ts.SourceFile, checker: ts.TypeChecker, rootDir: string, aliases: PathAlias[]): ParsedFile {
   const filePath = sourceFile.fileName;
   const relativePath = path.relative(rootDir, filePath);
   const loc = sourceFile.getLineAndCharacterOfPosition(sourceFile.getEnd()).line + 1;
   const exports = extractExports(sourceFile, checker);
-  const imports = extractImports(sourceFile);
+  const imports = extractImports(sourceFile, aliases);
 
   return { path: filePath, relativePath, loc, exports, imports, churn: 0, isTestFile: false };
 }
@@ -174,7 +211,7 @@ function getExportType(node: ts.Declaration): ParsedExport["type"] {
   return "variable";
 }
 
-function extractImports(sourceFile: ts.SourceFile): ParsedImport[] {
+function extractImports(sourceFile: ts.SourceFile, aliases: PathAlias[]): ParsedImport[] {
   const imports: ParsedImport[] = [];
 
   ts.forEachChild(sourceFile, (node) => {
@@ -183,8 +220,10 @@ function extractImports(sourceFile: ts.SourceFile): ParsedImport[] {
 
     const from = node.moduleSpecifier.text;
 
-    // Skip external packages
-    if (!from.startsWith(".") && !from.startsWith("/")) return;
+    // Keep relative imports, absolute imports, and path-aliased imports
+    const isRelative = from.startsWith(".") || from.startsWith("/");
+    const isAliased = aliases.some((a) => from.startsWith(a.prefix));
+    if (!isRelative && !isAliased) return;
 
     // eslint-disable-next-line @typescript-eslint/no-deprecated
     const isTypeOnly = node.importClause?.isTypeOnly ?? false;
@@ -212,18 +251,31 @@ function extractImports(sourceFile: ts.SourceFile): ParsedImport[] {
   return imports;
 }
 
-function resolveImportPaths(files: ParsedFile[], rootDir: string): ParsedFile[] {
+function resolveImportPaths(files: ParsedFile[], rootDir: string, aliases: PathAlias[]): ParsedFile[] {
   const filePathSet = new Set(files.map((f) => f.path));
 
   for (const file of files) {
     for (const imp of file.imports) {
-      const dir = path.dirname(file.path);
-      const resolved = resolveModulePath(dir, imp.from, filePathSet);
+      const expandedPath = expandAlias(imp.from, aliases, rootDir);
+      const dir = expandedPath ? rootDir : path.dirname(file.path);
+      const target = expandedPath ?? imp.from;
+      const resolved = resolveModulePath(dir, target, filePathSet);
       imp.resolvedFrom = resolved ? path.relative(rootDir, resolved) : imp.from;
     }
   }
 
   return files;
+}
+
+function expandAlias(importPath: string, aliases: PathAlias[], rootDir: string): string | null {
+  for (const alias of aliases) {
+    if (importPath.startsWith(alias.prefix)) {
+      const rest = importPath.slice(alias.prefix.length);
+      const absolute = path.join(alias.baseDir, rest);
+      return "./" + path.relative(rootDir, absolute);
+    }
+  }
+  return null;
 }
 
 function computeComplexity(node: ts.Node): number {

@@ -35,6 +35,20 @@ test.describe("UI Interactions", () => {
     expect(typeof checked).toBe("boolean");
   });
 
+  test("module clouds are visible when checkbox is checked", async ({ page }) => {
+    const checkbox = page.locator("input[type='checkbox']");
+    await expect(checkbox).toBeChecked();
+
+    // Wait for clouds to render (engine needs ticks to position nodes)
+    await page.waitForFunction(() => {
+      const container = document.querySelector("[data-cloud-count]");
+      return container && Number(container.getAttribute("data-cloud-count")) > 0;
+    }, { timeout: 10_000 });
+
+    const count = await page.getAttribute("[data-cloud-count]", "data-cloud-count");
+    expect(Number(count)).toBeGreaterThan(0);
+  });
+
   test("project name is displayed", async ({ page }) => {
     // fixture project has name "e2e-fixture-project"
     await expect(page.locator("text=e2e-fixture-project")).toBeVisible();

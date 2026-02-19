@@ -66,6 +66,11 @@ export function GraphCanvas({
 }): React.ReactElement {
   const fgRef = useRef<ForceGraph3DInstance | undefined>(undefined);
   const cloudsRef = useRef(new Map<string, CloudEntry>());
+  const configRef = useRef(config);
+  configRef.current = config;
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Ref to the node objects passed to ForceGraph3D — the library mutates these in-place with x/y/z
+  const fgNodesRef = useRef<Array<Record<string, unknown>>>([]);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
   const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
@@ -97,6 +102,14 @@ export function GraphCanvas({
     }
   }, [nodes, edges, config, currentView, focusNodeId, forceData, circularDeps, nodeById]);
 
+  // Build stable node/link objects for ForceGraph3D — store refs for tick handler access
+  const fgGraphData = useMemo(() => {
+    const fgNodes = graphData.nodes.map((n) => ({ ...n } as Record<string, unknown>));
+    const fgLinks = graphData.links.map((l) => ({ ...l }));
+    fgNodesRef.current = fgNodes;
+    return { nodes: fgNodes, links: fgLinks };
+  }, [graphData]);
+
   // Window dimensions
   useEffect(() => {
     function handleResize(): void {
@@ -122,16 +135,120 @@ export function GraphCanvas({
     fg.d3ReheatSimulation();
   }, [config.charge, config.distance]);
 
-  // Module clouds
-  useEffect(() => {
+  // Module clouds — stable tick handler using refs
+  const clearClouds = useCallback((fg: ForceGraph3DInstance) => {
+    if (cloudsRef.current.size === 0) return;
+    try {
+      const scene = fg.scene();
+      cloudsRef.current.forEach((obj) => {
+        obj.mesh.geometry.dispose();
+        (obj.mesh.material as THREE.Material).dispose();
+        scene.remove(obj.mesh);
+        const spriteMat = obj.label.material;
+        spriteMat.map?.dispose();
+        spriteMat.dispose();
+        scene.remove(obj.label);
+      });
+    } catch { /* scene destroyed */ }
+    cloudsRef.current.clear();
+  }, []);
+
+  const handleEngineTick = useCallback(() => {
     const fg = fgRef.current;
     if (!fg) return;
+    const cfg = configRef.current;
 
-    function clearClouds(): void {
-      if (cloudsRef.current.size === 0 || !fg) return;
-      try {
-        const scene = fg.scene();
-        cloudsRef.current.forEach((obj) => {
+    if (!cfg.showModuleBoxes) {
+      if (cloudsRef.current.size > 0) clearClouds(fg);
+      if (containerRef.current) containerRef.current.dataset.cloudCount = "0";
+      return;
+    }
+
+    try {
+      const scene = fg.scene();
+      // Read node positions from fgNodesRef — the library mutates these in-place
+      const fgNodes = fgNodesRef.current;
+      const groups = new Map<string, Array<Record<string, unknown>>>();
+
+      fgNodes.forEach((n) => {
+        if (n.x === undefined) return;
+        const mod = (n.module as string | undefined)?.startsWith(".worktrees/")
+          ? undefined
+          : (n.module as string) || "unknown";
+        if (!mod) return;
+        if (!groups.has(mod)) groups.set(mod, []);
+        groups.get(mod)?.push(n);
+      });
+
+      const active = new Set<string>();
+      groups.forEach((moduleNodes, mod) => {
+        if (moduleNodes.length < 3) return;
+        active.add(mod);
+
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+        moduleNodes.forEach((n) => {
+          const x = n.x as number, y = n.y as number, z = n.z as number;
+          minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+          minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+        });
+
+        const pad = 20;
+        const rx = Math.max((maxX - minX) / 2 + pad, 12);
+        const ry = Math.max((maxY - minY) / 2 + pad, 12);
+        const rz = Math.max((maxZ - minZ) / 2 + pad, 12);
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        const cz = (minZ + maxZ) / 2;
+
+        const existing = cloudsRef.current.get(mod);
+        if (existing) {
+          existing.mesh.position.set(cx, cy, cz);
+          existing.mesh.scale.set(rx, ry, rz);
+          (existing.mesh.material as THREE.MeshBasicMaterial).opacity = cfg.boxOpacity * 0.25;
+          existing.label.position.set(cx, maxY + pad + 8, cz);
+        } else {
+          const color = getModuleColor(mod);
+          const geo = new THREE.SphereGeometry(2, 24, 16);
+          const mat = new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: cfg.boxOpacity * 0.25,
+            depthWrite: false,
+            side: THREE.BackSide,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(cx, cy, cz);
+          mesh.scale.set(rx, ry, rz);
+          scene.add(mesh);
+
+          const canvas = document.createElement("canvas");
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            canvas.width = 512; canvas.height = 64;
+            ctx.font = "bold 36px Inter, -apple-system, sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.strokeStyle = "#000";
+            ctx.lineWidth = 6;
+            ctx.strokeText(mod, 256, 32);
+            ctx.fillStyle = "#fff";
+            ctx.fillText(mod, 256, 32);
+          }
+          const texture = new THREE.CanvasTexture(canvas);
+          const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+          const label = new THREE.Sprite(spriteMat);
+          label.scale.set(100, 12, 1);
+          label.position.set(cx, maxY + pad + 8, cz);
+          scene.add(label);
+
+          cloudsRef.current.set(mod, { mesh, label });
+        }
+      });
+
+      cloudsRef.current.forEach((obj, mod) => {
+        if (!active.has(mod)) {
           obj.mesh.geometry.dispose();
           (obj.mesh.material as THREE.Material).dispose();
           scene.remove(obj.mesh);
@@ -139,115 +256,23 @@ export function GraphCanvas({
           spriteMat.map?.dispose();
           spriteMat.dispose();
           scene.remove(obj.label);
-        });
-      } catch { /* scene destroyed */ }
-      cloudsRef.current.clear();
-    }
+          cloudsRef.current.delete(mod);
+        }
+      });
 
-    function updateClouds(): void {
-      if (!fg) return;
-      if (!config.showModuleBoxes) { clearClouds(); return; }
-      try {
-        const scene = fg.scene();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const fgNodes = fg.graphData().nodes as Array<Record<string, any>>;
-        const groups = new Map<string, Array<Record<string, number | string>>>();
+      if (containerRef.current) {
+        containerRef.current.dataset.cloudCount = String(cloudsRef.current.size);
+      }
+    } catch { /* scene not ready */ }
+  }, [clearClouds]);
 
-        fgNodes.forEach((n: Record<string, unknown>) => {
-          if (n.x === undefined) return;
-          const mod = (n.module as string | undefined)?.startsWith(".worktrees/")
-            ? undefined
-            : (n.module as string) || "unknown";
-          if (!mod) return;
-          if (!groups.has(mod)) groups.set(mod, []);
-          groups.get(mod)?.push(n as Record<string, number | string>);
-        });
-
-        const active = new Set<string>();
-        groups.forEach((moduleNodes, mod) => {
-          if (moduleNodes.length < 3) return;
-          active.add(mod);
-
-          let minX = Infinity, minY = Infinity, minZ = Infinity;
-          let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-          moduleNodes.forEach((n) => {
-            const x = n.x as number, y = n.y as number, z = n.z as number;
-            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-            minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-            minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
-          });
-
-          const pad = 20;
-          const rx = Math.max((maxX - minX) / 2 + pad, 12);
-          const ry = Math.max((maxY - minY) / 2 + pad, 12);
-          const rz = Math.max((maxZ - minZ) / 2 + pad, 12);
-          const cx = (minX + maxX) / 2;
-          const cy = (minY + maxY) / 2;
-          const cz = (minZ + maxZ) / 2;
-
-          const existing = cloudsRef.current.get(mod);
-          if (existing) {
-            existing.mesh.position.set(cx, cy, cz);
-            existing.mesh.scale.set(rx, ry, rz);
-            (existing.mesh.material as THREE.MeshBasicMaterial).opacity = config.boxOpacity * 0.25;
-            existing.label.position.set(cx, maxY + pad + 8, cz);
-          } else {
-            const color = getModuleColor(mod);
-            const geo = new THREE.SphereGeometry(2, 24, 16);
-            const mat = new THREE.MeshBasicMaterial({
-              color,
-              transparent: true,
-              opacity: config.boxOpacity * 0.25,
-              depthWrite: false,
-              side: THREE.BackSide,
-            });
-            const mesh = new THREE.Mesh(geo, mat);
-            mesh.position.set(cx, cy, cz);
-            mesh.scale.set(rx, ry, rz);
-            scene.add(mesh);
-
-            const canvas = document.createElement("canvas");
-            const ctx = canvas.getContext("2d");
-            if (ctx) {
-              canvas.width = 512; canvas.height = 64;
-              ctx.font = "bold 36px Inter, -apple-system, sans-serif";
-              ctx.textAlign = "center";
-              ctx.textBaseline = "middle";
-              ctx.strokeStyle = "#000";
-              ctx.lineWidth = 6;
-              ctx.strokeText(mod, 256, 32);
-              ctx.fillStyle = "#fff";
-              ctx.fillText(mod, 256, 32);
-            }
-            const texture = new THREE.CanvasTexture(canvas);
-            const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
-            const label = new THREE.Sprite(spriteMat);
-            label.scale.set(100, 12, 1);
-            label.position.set(cx, maxY + pad + 8, cz);
-            scene.add(label);
-
-            cloudsRef.current.set(mod, { mesh, label });
-          }
-        });
-
-        cloudsRef.current.forEach((obj, mod) => {
-          if (!active.has(mod)) {
-            obj.mesh.geometry.dispose();
-            (obj.mesh.material as THREE.Material).dispose();
-            scene.remove(obj.mesh);
-            const spriteMat = obj.label.material;
-            spriteMat.map?.dispose();
-            spriteMat.dispose();
-            scene.remove(obj.label);
-            cloudsRef.current.delete(mod);
-          }
-        });
-      } catch { /* error */ }
-    }
-
-    fg.onEngineTick(updateClouds);
-    return () => { clearClouds(); };
-  }, [config.showModuleBoxes, config.boxOpacity]);
+  // Cleanup clouds on unmount
+  useEffect(() => {
+    return () => {
+      const fg = fgRef.current;
+      if (fg) clearClouds(fg);
+    };
+  }, [clearClouds]);
 
   // Search fly: listen for custom event
   useEffect(() => {
@@ -255,9 +280,7 @@ export function GraphCanvas({
       const nodeId = (e as CustomEvent<string>).detail;
       const fg = fgRef.current;
       if (!fg || !nodeId) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const fgNodes = fg.graphData().nodes as Array<Record<string, any>>;
-      const target = fgNodes.find((n: Record<string, unknown>) => n.id === nodeId);
+      const target = fgNodesRef.current.find((n) => n.id === nodeId);
       if (target?.x !== undefined) {
         fg.cameraPosition(
           { x: (target.x as number) + 100, y: (target.y as number) + 100, z: (target.z as number) + 100 },
@@ -279,13 +302,10 @@ export function GraphCanvas({
   );
 
   return (
-    <div className="w-screen h-screen">
+    <div ref={containerRef} className="w-screen h-screen" data-cloud-count="0">
       <ForceGraph3D
         ref={fgRef}
-        graphData={{
-          nodes: graphData.nodes.map((n) => ({ ...n })),
-          links: graphData.links.map((l) => ({ ...l })),
-        }}
+        graphData={fgGraphData}
         nodeLabel={(n: Record<string, unknown>) => `${n.path as string} (${n.loc as number} LOC)`}
         nodeColor={(n: Record<string, unknown>) => n.color as string}
         nodeVal={(n: Record<string, unknown>) => n.size as number}
@@ -295,6 +315,7 @@ export function GraphCanvas({
         linkOpacity={config.linkOpacity}
         backgroundColor="#0a0a0f"
         onNodeClick={handleNodeClick}
+        onEngineTick={handleEngineTick}
         dagMode={currentView === "depflow" ? "td" : undefined}
         dagLevelDistance={currentView === "depflow" ? 50 : undefined}
         width={dimensions.width}

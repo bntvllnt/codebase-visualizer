@@ -1,22 +1,63 @@
+<div align="center">
+
 # codebase-visualizer
 
-3D interactive codebase visualization for TypeScript projects. Parses your codebase, builds a dependency graph, computes architectural metrics, and serves an interactive 3D map in your browser. Also works as an MCP server for LLM-assisted code understanding.
+**3D interactive codebase visualization for TypeScript projects.**
+
+Parse your codebase, build a dependency graph, compute architectural metrics, and explore it all in an interactive 3D map. Also works as an MCP server for LLM-assisted code understanding.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/Node-%3E%3D18-brightgreen)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org)
+
+</div>
+
+---
 
 ## Screenshots
 
-Galaxy view — 3D force-directed graph with module clouds and group legend:
+| Galaxy View | Module View | Forces View |
+|:-----------:|:-----------:|:-----------:|
+| ![Galaxy](docs/screenshot-galaxy.png) | ![Module](docs/screenshot-module.png) | ![Forces](docs/screenshot-forces.png) |
+| 3D force graph, module clouds, group legend | File clusters by directory, labeled clouds | Centrifuge: tension, bridges, candidates |
 
-![Galaxy View](docs/screenshot-galaxy.png)
+## Quick Start
 
-Module view — files clustered by directory with labeled cloud spheres:
+```bash
+npx codebase-visualizer ./src
+```
 
-![Module View](docs/screenshot-module.png)
+That's it. Opens a 3D map at `http://localhost:3333`.
 
-Forces view — centrifuge analysis showing tension, bridges, and extraction candidates:
+## Table of Contents
 
-![Forces View](docs/screenshot-forces.png)
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+- [MCP Integration](#mcp-integration)
+- [Browser Views](#browser-views)
+- [Metrics](#metrics)
+- [REST API](#rest-api)
+- [Architecture](#architecture)
+- [Requirements](#requirements)
+- [Limitations](#limitations)
+- [Contributing](#contributing)
+- [License](#license)
 
-## Install
+## Features
+
+- **8 interactive 3D views** — Galaxy, Dependency Flow, Hotspot, Focus, Module, Forces, Churn, Coverage
+- **11 architectural metrics** — PageRank, betweenness, coupling, cohesion, tension, churn, complexity, blast radius, dead exports, test coverage, escape velocity
+- **3D module clouds** — transparent spheres group files by directory with Phong shading and zoom-based fade
+- **MCP server** — 8 tools for LLM-assisted code understanding (Claude Code, Cursor, VS Code)
+- **REST API** — 9 endpoints for programmatic access
+- **Search** — find any file and fly the camera to it
+- **Detail panel** — click any node for full metrics
+- **Configurable** — node size, link color, physics, cloud opacity
+
+## Installation
+
+Run directly with npx (no install needed):
 
 ```bash
 npx codebase-visualizer ./src
@@ -39,26 +80,23 @@ npx codebase-visualizer ./src
 # => 3D map ready at http://localhost:3333
 ```
 
-Opens an interactive 3D force-directed graph in your browser with 8 views, 3D module clouds, a group legend, search, detail panel, and configurable settings.
-
-### MCP Mode (for LLMs)
+### MCP Mode
 
 ```bash
 npx codebase-visualizer --mcp ./src
 ```
 
-Starts a stdio MCP server exposing 8 tools for LLM-assisted code understanding. No browser, no HTTP.
+Starts a stdio MCP server. No browser, no HTTP.
 
-### CLI Options
+### Options
 
-```
-codebase-visualizer <path>        # Parse and visualize
-  --mcp                           # MCP stdio mode (no browser)
-  --port <number>                 # Web server port (default: 3333)
-  --help                          # Show help
-```
+| Flag | Description | Default |
+|------|-------------|---------|
+| `<path>` | Path to TypeScript codebase | required |
+| `--mcp` | MCP stdio mode | off |
+| `--port <n>` | Web server port | `3333` |
 
-## MCP Setup
+## MCP Integration
 
 ### Claude Code
 
@@ -90,64 +128,68 @@ Add to `.cursor/mcp.json` or `.vscode/mcp.json`:
 }
 ```
 
-## MCP Tools
+### MCP Tools
 
-| Tool | Purpose |
-|------|---------|
+| Tool | What it does |
+|------|--------------|
 | `codebase_overview` | High-level architecture: modules, entry points, key metrics |
 | `file_context` | Everything about one file: exports, imports, dependents, metrics |
 | `get_dependents` | Blast radius: what breaks if you change this file |
-| `find_hotspots` | Ranked problem files by any metric (coupling, pagerank, churn, complexity, blast_radius, coverage...) |
-| `get_module_structure` | Module map with cross-deps, cohesion scores, circular deps |
-| `analyze_forces` | Centrifuge analysis: cohesion, tension files, bridges, extraction candidates |
-| `find_dead_exports` | Unused exports across the codebase — code that can be safely removed |
-| `get_groups` | Top-level directory groups with aggregate metrics: files, LOC, importance, coupling |
+| `find_hotspots` | Ranked problem files by any metric |
+| `get_module_structure` | Module map with cross-deps, cohesion, circular deps |
+| `analyze_forces` | Centrifuge analysis: tension, bridges, extraction candidates |
+| `find_dead_exports` | Unused exports that can be safely removed |
+| `get_groups` | Top-level directory groups with aggregate metrics |
 
-## Browser Features
+## Browser Views
 
-### 8 Views
+| View | What it shows |
+|------|---------------|
+| **Galaxy** | 3D force-directed graph. Color = module, size = PageRank |
+| **Dep Flow** | DAG layout (top-to-bottom). Circular deps in red |
+| **Hotspot** | Health heatmap: green (healthy) to red (high coupling) |
+| **Focus** | Click a node to see its 2-hop neighborhood |
+| **Module** | Files cluster by directory. Cross-module edges in yellow |
+| **Forces** | Centrifuge: tension (yellow), bridges (cyan), extraction (green) |
+| **Churn** | Git commit frequency heatmap |
+| **Coverage** | Test coverage: green = tested, red = untested |
 
-| # | View | What It Shows |
-|---|------|---------------|
-| 1 | **Galaxy** (default) | 3D force-directed graph. Color = module, size = PageRank importance |
-| 2 | **Dependency Flow** | DAG layout (top-to-bottom). Circular deps in red |
-| 3 | **Hotspot** | Health coloring: green (healthy) to red (high coupling). Size = LOC |
-| 4 | **Focus** | Click a node to see its 2-hop neighborhood. Everything else fades |
-| 5 | **Module** | Files cluster by directory. Cross-module edges in yellow |
-| 6 | **Forces** | Centrifuge analysis: tension (yellow), bridges (cyan), junk drawers (red), extraction candidates (green) |
-| 7 | **Churn** | Git commit frequency heatmap. Red = frequently changed files |
-| 8 | **Coverage** | Test coverage: green = has tests, red = untested |
+### Module Clouds
 
-### 3D Module Clouds
+Transparent 3D spheres group files by top-level directory:
 
-Transparent 3D spheres group files by top-level directory with:
-- Phong shading + wireframe overlay for depth perception
-- Zoom-based opacity fade (clouds disappear when camera is close)
-- Smart grouping: `src/components/ui/` becomes "components", `convex/agents/eval/` becomes "convex"
-- Dynamic threshold based on project size
-
-Toggle via Settings > "Module Clouds" checkbox.
+- Phong shading + wireframe for depth perception
+- Zoom-based opacity fade
+- Smart grouping: `src/components/ui/` becomes "components"
+- Toggle via Settings > "Module Clouds"
 
 ### Group Legend
 
-Bottom-left legend shows:
-- View-specific color coding
-- When clouds are enabled: color swatch + group name + file count + importance percentage for each group (up to 8 groups, sorted by PageRank)
+Bottom-left legend shows view-specific color coding. When clouds are enabled, adds color swatch + group name + file count + importance % for up to 8 groups sorted by PageRank.
 
-### Other UI
+## Metrics
 
-- **Search**: find any file by name, fly camera to it
-- **Detail Panel**: click any node to see full metrics — PageRank, coupling, fan-in/out, complexity, blast radius, dead exports, test coverage
-- **Settings Panel**: configure node opacity/size, link color/width, physics charge/distance, cloud opacity
-- **Project Bar**: project name, file/function/dependency counts, circular dep count, tension file count
+| Metric | What it reveals |
+|--------|-----------------|
+| **PageRank** | Most-referenced files (importance) |
+| **Betweenness** | Bridge files between disconnected modules |
+| **Coupling** | How tangled a file is (fan-out / total connections) |
+| **Cohesion** | Does a module belong together? (internal / total deps) |
+| **Tension** | Is a file torn between modules? (entropy of cross-module pulls) |
+| **Escape Velocity** | Should this module be its own package? |
+| **Churn** | Git commit frequency |
+| **Complexity** | Average cyclomatic complexity of exports |
+| **Blast Radius** | Transitive dependents affected by a change |
+| **Dead Exports** | Unused exports (safe to remove) |
+| **Test Coverage** | Whether a test file exists for each source file |
 
 ## REST API
 
 | Endpoint | Returns |
 |----------|---------|
-| `GET /api/graph` | All nodes (with metrics) + edges + stats |
-| `GET /api/groups` | Group metrics sorted by importance (name, files, LOC, importance, fanIn, fanOut, color) |
-| `GET /api/forces` | Force analysis (cohesion, tension, bridges, extraction candidates) |
+| `GET /api/graph` | All nodes + edges + stats |
+| `GET /api/groups` | Group metrics sorted by importance |
+| `GET /api/forces` | Force analysis (cohesion, tension, bridges) |
 | `GET /api/modules` | Module-level metrics |
 | `GET /api/hotspots?metric=coupling&limit=10` | Ranked hotspot files |
 | `GET /api/file/<path>` | Single file details + metrics |
@@ -155,32 +197,23 @@ Bottom-left legend shows:
 | `GET /api/ping` | Health check |
 | `POST /api/mcp` | MCP tool invocation (web mode) |
 
-## Metrics
-
-| Metric | What It Reveals |
-|--------|-----------------|
-| **PageRank** | Most-referenced files (importance) |
-| **Betweenness** | Bridge files connecting otherwise-disconnected modules |
-| **Coupling** | How tangled a file is (fan-out / total connections) |
-| **Cohesion** | Does a module belong together? (internal / total deps) |
-| **Tension** | Is a file torn between modules? (entropy of cross-module pulls) |
-| **Escape Velocity** | Should this module be its own package? (high external use, low internal deps) |
-| **Churn** | Git commit frequency (files that change often) |
-| **Cyclomatic Complexity** | Average complexity of exported functions |
-| **Blast Radius** | Transitive dependents affected if this file changes |
-| **Dead Exports** | Unused exports (code that can be safely removed) |
-| **Test Coverage** | Whether a test file exists for each source file |
-
-## How It Works
+## Architecture
 
 ```
-Parse (TS Compiler API) -> Build Graph (graphology) -> Analyze (metrics) -> Serve (Next.js + 3d-force-graph)
+codebase-visualizer <path>
+        |
+        v
+   +---------+     +---------+     +----------+     +---------+
+   | Parser  | --> | Graph   | --> | Analyzer | --> | Server  |
+   | TS AST  |     | grapho- |     | metrics  |     | Next.js |
+   |         |     | logy    |     |          |     | or MCP  |
+   +---------+     +---------+     +----------+     +---------+
 ```
 
-1. **Parser** extracts files, exported functions, and import relationships using the TypeScript Compiler API. Resolves tsconfig path aliases (`@/` imports), respects `.gitignore`, detects test file associations.
-2. **Graph builder** creates nodes (files + functions) and edges (import deps + test associations) using graphology. Detects circular dependencies via iterative DFS.
-3. **Analyzer** computes PageRank, betweenness centrality, coupling, cohesion, tension, escape velocity, churn, complexity, blast radius, dead exports, test coverage, and group-level aggregations.
-4. **Server** serves the 3D visualization via Next.js (browser mode) or exposes graph queries via MCP stdio (LLM mode).
+1. **Parser** — extracts files, functions, and imports via the TypeScript Compiler API. Resolves path aliases, respects `.gitignore`, detects test associations.
+2. **Graph** — builds nodes and edges with [graphology](https://graphology.github.io/). Detects circular deps via iterative DFS.
+3. **Analyzer** — computes all 11 metrics plus group-level aggregations.
+4. **Server** — serves the 3D visualization via [Next.js](https://nextjs.org/) + [3d-force-graph](https://github.com/vasturiano/3d-force-graph), or exposes queries via MCP stdio.
 
 ## Requirements
 
@@ -189,11 +222,26 @@ Parse (TS Compiler API) -> Build Graph (graphology) -> Analyze (metrics) -> Serv
 
 ## Limitations
 
-- TypeScript only (no JavaScript CommonJS, Python, Go, etc.)
+- TypeScript only (no JS CommonJS, Python, Go, etc.)
 - Static analysis only (no runtime/dynamic imports)
-- File-level + exported function-level granularity (no internal function calls)
-- Client-side 3D rendering requires WebGL
+- File + exported function granularity (no internal function calls)
+- Client-side 3D requires WebGL
+
+## Contributing
+
+Contributions are welcome. Please open an issue first to discuss what you'd like to change.
+
+```bash
+git clone https://github.com/bntvllnt/codebase-visualizer.git
+cd codebase-visualizer
+pnpm install
+pnpm dev          # tsx watch mode
+pnpm test         # vitest
+pnpm lint         # eslint
+pnpm typecheck    # tsc --noEmit
+pnpm build        # production build
+```
 
 ## License
 
-MIT
+[MIT](LICENSE)

@@ -35,6 +35,14 @@
   ],
   "author": "bntvllnt",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bntvllnt/codebase-visualizer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bntvllnt/codebase-visualizer/issues"
+  },
+  "homepage": "https://github.com/bntvllnt/codebase-visualizer#readme",
   "dependencies": {
     "3d-force-graph": "^1.79.1",
     "@modelcontextprotocol/sdk": "^1.0.0",

@@ -1,11 +1,7 @@
 #!/usr/bin/env node
 
 process.on("uncaughtException", (err) => {
-  console.error("Fatal:", err.message);
-  process.exit(1);
-});
-process.on("unhandledRejection", (err) => {
-  console.error("Fatal:", err instanceof Error ? err.message : err);
+  process.stderr.write(`Fatal: ${err.stack ?? err.message}\n`);
   process.exit(1);
 });
 
@@ -63,13 +59,20 @@ program
 
         const projectDir = path.resolve(__dirname, "..");
         const next = (await import("next")).default;
-        const app = next({ dev: process.env.NODE_ENV !== "production", dir: projectDir });
+        const app = next({ dev: false, dir: projectDir });
         const handle = app.getRequestHandler();
 
         await app.prepare();
 
         const server = createServer((req, res) => {
-          void handle(req, res);
+          handle(req, res).catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            process.stderr.write(`Request error: ${req.url} — ${msg}\n`);
+            if (!res.headersSent) {
+              res.statusCode = 500;
+              res.end("Internal Server Error");
+            }
+          });
         });
 
         await new Promise<void>((resolve, reject) => {
@@ -96,12 +99,6 @@ program
         console.log(`3D map ready at http://localhost:${actualPort}`);
 
         /* Browser auto-open disabled — use URL above */
-
-        process.on("SIGINT", () => {
-          console.log("\nShutting down...");
-          server.close();
-          process.exit(0);
-        });
       }
     } catch (error) {
       if (error instanceof Error) {

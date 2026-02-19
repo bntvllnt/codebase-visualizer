@@ -58,8 +58,9 @@ program
         setGraph(codebaseGraph, projectName);
 
         const projectDir = path.resolve(__dirname, "..");
+        const isDev = import.meta.url.endsWith(".ts");
         const next = (await import("next")).default;
-        const app = next({ dev: false, dir: projectDir });
+        const app = next({ dev: isDev, dir: projectDir });
         const handle = app.getRequestHandler();
 
         await app.prepare();

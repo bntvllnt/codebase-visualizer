@@ -42,6 +42,7 @@ const ForceGraph3D = dynamic(() => import("react-force-graph-3d") as any, {
 
 interface CloudEntry {
   mesh: THREE.Mesh;
+  wire: THREE.LineSegments;
   label: THREE.Sprite;
 }
 
@@ -144,6 +145,9 @@ export function GraphCanvas({
         obj.mesh.geometry.dispose();
         (obj.mesh.material as THREE.Material).dispose();
         scene.remove(obj.mesh);
+        obj.wire.geometry.dispose();
+        (obj.wire.material as THREE.Material).dispose();
+        scene.remove(obj.wire);
         const spriteMat = obj.label.material;
         spriteMat.map?.dispose();
         spriteMat.dispose();
@@ -166,23 +170,46 @@ export function GraphCanvas({
 
     try {
       const scene = fg.scene();
+      const camera = fg.camera();
+
+      // Zoom-based opacity: fade clouds when camera is close
+      const camDist = camera.position.length();
+      const fadeNear = 150;
+      const fadeFar = 500;
+      const zoomFade = Math.min(1, Math.max(0, (camDist - fadeNear) / (fadeFar - fadeNear)));
+
       // Read node positions from fgNodesRef — the library mutates these in-place
       const fgNodes = fgNodesRef.current;
       const groups = new Map<string, Array<Record<string, unknown>>>();
 
+      // Collapse deep paths to top-level groups for digestible clouds
+      // src/components/ui/ → "components", convex/agents/eval/ → "convex", e2e/ → "e2e"
+      const SOURCE_DIRS = new Set(["src", "lib", "app", "packages", "apps"]);
+      function cloudGroup(mod: string): string {
+        const parts = mod.replace(/\/$/, "").split("/").filter(Boolean);
+        if (parts.length === 0 || parts[0] === ".") return "root";
+        if (SOURCE_DIRS.has(parts[0]) && parts.length > 1) return parts[1];
+        return parts[0];
+      }
+
       fgNodes.forEach((n) => {
         if (n.x === undefined) return;
-        const mod = (n.module as string | undefined)?.startsWith(".worktrees/")
+        const rawMod = (n.module as string | undefined)?.startsWith(".worktrees/")
           ? undefined
           : (n.module as string) || "unknown";
-        if (!mod) return;
-        if (!groups.has(mod)) groups.set(mod, []);
-        groups.get(mod)?.push(n);
+        if (!rawMod) return;
+        const group = cloudGroup(rawMod);
+        if (!groups.has(group)) groups.set(group, []);
+        groups.get(group)?.push(n);
       });
+
+      // Dynamic minimum: small projects need fewer files per cloud
+      const totalNodes = fgNodes.length;
+      const minFiles = totalNodes > 100 ? 5 : totalNodes > 20 ? 4 : 3;
 
       const active = new Set<string>();
       groups.forEach((moduleNodes, mod) => {
-        if (moduleNodes.length < 3) return;
+        if (moduleNodes.length < minFiles) return;
         active.add(mod);
 
         let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -202,48 +229,81 @@ export function GraphCanvas({
         const cy = (minY + maxY) / 2;
         const cz = (minZ + maxZ) / 2;
 
+        const baseOpacity = cfg.boxOpacity * zoomFade;
         const existing = cloudsRef.current.get(mod);
         if (existing) {
           existing.mesh.position.set(cx, cy, cz);
           existing.mesh.scale.set(rx, ry, rz);
-          (existing.mesh.material as THREE.MeshBasicMaterial).opacity = cfg.boxOpacity * 0.25;
+          (existing.mesh.material as THREE.MeshPhongMaterial).opacity = baseOpacity * 0.3;
+          existing.wire.position.set(cx, cy, cz);
+          existing.wire.scale.set(rx, ry, rz);
+          (existing.wire.material as THREE.LineBasicMaterial).opacity = baseOpacity * 0.5;
           existing.label.position.set(cx, maxY + pad + 8, cz);
+          existing.label.material.opacity = zoomFade;
+          const labelScale = Math.max(rx, ry, rz) * 1.2;
+          existing.label.scale.set(labelScale, labelScale * 0.15, 1);
         } else {
           const color = getModuleColor(mod);
+
+          // Solid cloud with Phong shading — responds to scene lights
           const geo = new THREE.SphereGeometry(2, 24, 16);
-          const mat = new THREE.MeshBasicMaterial({
+          const mat = new THREE.MeshPhongMaterial({
             color,
             transparent: true,
-            opacity: cfg.boxOpacity * 0.25,
+            opacity: baseOpacity * 0.3,
             depthWrite: false,
-            side: THREE.BackSide,
+            side: THREE.DoubleSide,
+            shininess: 20,
+            emissive: new THREE.Color(color),
+            emissiveIntensity: 0.15,
           });
           const mesh = new THREE.Mesh(geo, mat);
           mesh.position.set(cx, cy, cz);
           mesh.scale.set(rx, ry, rz);
+          mesh.renderOrder = -1;
           scene.add(mesh);
 
+          // Wireframe overlay for 3D depth cues
+          const wireGeo = new THREE.SphereGeometry(2, 12, 8);
+          const wireMat = new THREE.LineBasicMaterial({
+            color,
+            transparent: true,
+            opacity: baseOpacity * 0.5,
+            depthWrite: false,
+          });
+          const wireframe = new THREE.LineSegments(
+            new THREE.WireframeGeometry(wireGeo),
+            wireMat,
+          );
+          wireframe.position.set(cx, cy, cz);
+          wireframe.scale.set(rx, ry, rz);
+          wireframe.renderOrder = -1;
+          scene.add(wireframe);
+
+          // Label: short folder name (last segment)
+          const shortName = mod.replace(/\/$/, "").split("/").pop() ?? mod;
           const canvas = document.createElement("canvas");
           const ctx = canvas.getContext("2d");
           if (ctx) {
-            canvas.width = 512; canvas.height = 64;
-            ctx.font = "bold 36px Inter, -apple-system, sans-serif";
+            canvas.width = 512; canvas.height = 96;
+            ctx.font = "bold 48px Inter, -apple-system, sans-serif";
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
             ctx.strokeStyle = "#000";
-            ctx.lineWidth = 6;
-            ctx.strokeText(mod, 256, 32);
+            ctx.lineWidth = 8;
+            ctx.strokeText(shortName, 256, 48);
             ctx.fillStyle = "#fff";
-            ctx.fillText(mod, 256, 32);
+            ctx.fillText(shortName, 256, 48);
           }
           const texture = new THREE.CanvasTexture(canvas);
-          const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+          const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false, opacity: zoomFade });
           const label = new THREE.Sprite(spriteMat);
-          label.scale.set(100, 12, 1);
+          const labelScale = Math.max(rx, ry, rz) * 1.2;
+          label.scale.set(labelScale, labelScale * 0.15, 1);
           label.position.set(cx, maxY + pad + 8, cz);
           scene.add(label);
 
-          cloudsRef.current.set(mod, { mesh, label });
+          cloudsRef.current.set(mod, { mesh, wire: wireframe, label });
         }
       });
 
@@ -252,6 +312,9 @@ export function GraphCanvas({
           obj.mesh.geometry.dispose();
           (obj.mesh.material as THREE.Material).dispose();
           scene.remove(obj.mesh);
+          obj.wire.geometry.dispose();
+          (obj.wire.material as THREE.Material).dispose();
+          scene.remove(obj.wire);
           const spriteMat = obj.label.material;
           spriteMat.map?.dispose();
           spriteMat.dispose();

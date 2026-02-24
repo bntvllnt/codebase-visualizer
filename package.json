@@ -19,7 +19,8 @@
     "test:e2e": "playwright test",
     "lint": "eslint src/ app/ components/ hooks/ lib/",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist .next"
+    "clean": "rm -rf dist .next",
+    "publish:npm": "pnpm lint && pnpm typecheck && pnpm build && pnpm test && npm publish --access public"
   },
   "keywords": [
     "codebase",

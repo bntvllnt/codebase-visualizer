@@ -62,6 +62,27 @@ npm run test        # vitest
 
 All four must pass before shipping. Run in order: lint -> typecheck -> build -> test.
 
+## npm Publishing (Local Only)
+
+- npm publish is manual/local (no GitHub Action publish workflow).
+- Use this command:
+
+```bash
+pnpm publish:npm
+```
+
+What it does:
+1. lint
+2. typecheck
+3. build
+4. test
+5. `npm publish --access public`
+
+Prerequisites:
+- `npm login` completed on your machine
+- npm account/package permissions set
+- if npm 2FA is enabled, provide OTP during publish
+
 ### ESLint Rules
 - Strict type-checked config (`strictTypeChecked`)
 - No `any` — use `unknown` + type guards

@@ -22,7 +22,7 @@ const program = new Command();
 program
   .name("codebase-visualizer")
   .description("3D interactive codebase visualization with MCP integration")
-  .version("0.1.0")
+  .version("1.0.0")
   .argument("<path>", "Path to the codebase directory to visualize")
   .option("--mcp", "Start as MCP stdio server (no browser, no HTTP)")
   .option("--port <number>", "Web server port (browser mode only)", "3333")

@@ -1,4 +1,4 @@
-name: Release Tag
+name: Release PR
 
 on:
   workflow_dispatch:
@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   release:
@@ -22,6 +23,7 @@ jobs:
     steps:
       - name: Ensure main branch
         run: test "${{ github.ref_name }}" = "main"
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -53,14 +55,31 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Bump version and create tag
+      - name: Bump version
         id: bump
         run: |
-          NEW_VERSION=$(npm version ${{ github.event.inputs.bump }} -m "chore(release): %s [skip ci]")
-          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          npm version ${{ github.event.inputs.bump }} --no-git-tag-version
+          VERSION="v$(node -p \"require('./package.json').version\")"
+          BRANCH="release/${VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
-      - name: Push release commit and tag
-        run: git push origin HEAD:${{ github.ref_name }} --follow-tags
+      - name: Commit version bump
+        run: |
+          git checkout -b "${{ steps.bump.outputs.branch }}"
+          git add package.json
+          git commit -m "chore(release): ${{ steps.bump.outputs.version }} [skip ci]"
 
-      - name: Release summary
-        run: echo "Created and pushed ${{ steps.bump.outputs.version }}"
+      - name: Push release branch
+        run: git push -u origin "${{ steps.bump.outputs.branch }}"
+
+      - name: Create release pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "${{ steps.bump.outputs.branch }}" \
+            --title "chore(release): ${{ steps.bump.outputs.version }}" \
+            --body "Automated release bump for ${{ steps.bump.outputs.version }}.\n\n- Verification passed (lint, typecheck, build, test)\n- Merge this PR to create and publish tag automatically" \
+            --assignee "${{ github.actor }}"

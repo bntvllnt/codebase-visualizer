@@ -241,18 +241,19 @@ Publishing is automated and **only happens on `v*` tags**.
 - `CI` workflow runs on every PR and push to `main`:
   - lint → typecheck → build → test
 
-### Create a release (auto bump + auto tag)
+### Create a release (auto bump + PR + auto tag)
 
-1. Open GitHub Actions → `Release Tag`.
+1. Open GitHub Actions → `Release PR`.
 2. Click **Run workflow** on `main`.
 3. Select bump type: `patch` | `minor` | `major`.
+4. Merge the generated release PR.
 
-`Release Tag` will:
+`Release PR` will:
 - run lint → typecheck → build → test
 - bump `package.json` version
-- create and push `vX.Y.Z` tag
+- open a release PR assigned to the workflow runner
 
-Pushing that tag triggers `Publish to npm`, which runs checks again and publishes.
+After merge, `Tag Release` creates and pushes `vX.Y.Z`, which triggers `Publish to npm`.
 
 ## Contributing
 

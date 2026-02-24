@@ -227,6 +227,33 @@ codebase-visualizer <path>
 - File + exported function granularity (no internal function calls)
 - Client-side 3D requires WebGL
 
+## Release
+
+Publishing is automated and **only happens on `v*` tags**.
+
+### One-time setup
+
+1. Create an npm automation token (npmjs.com → Access Tokens).
+2. Add it to GitHub repository secrets as `NPM_TOKEN`.
+
+### Normal CI (before release)
+
+- `CI` workflow runs on every PR and push to `main`:
+  - lint → typecheck → build → test
+
+### Create a release (auto bump + auto tag)
+
+1. Open GitHub Actions → `Release Tag`.
+2. Click **Run workflow** on `main`.
+3. Select bump type: `patch` | `minor` | `major`.
+
+`Release Tag` will:
+- run lint → typecheck → build → test
+- bump `package.json` version
+- create and push `vX.Y.Z` tag
+
+Pushing that tag triggers `Publish to npm`, which runs checks again and publishes.
+
 ## Contributing
 
 Contributions are welcome. Please open an issue first to discuss what you'd like to change.

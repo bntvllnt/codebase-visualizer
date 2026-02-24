@@ -1,0 +1,66 @@
+name: Release Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump type
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure main branch
+        run: test "${{ github.ref_name }}" = "main"
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify (lint, typecheck, build, test)
+        run: |
+          pnpm lint
+          pnpm typecheck
+          pnpm build
+          pnpm test
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version and create tag
+        id: bump
+        run: |
+          NEW_VERSION=$(npm version ${{ github.event.inputs.bump }} -m "chore(release): %s [skip ci]")
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Push release commit and tag
+        run: git push origin HEAD:${{ github.ref_name }} --follow-tags
+
+      - name: Release summary
+        run: echo "Created and pushed ${{ steps.bump.outputs.version }}"
